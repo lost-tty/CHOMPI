@@ -438,8 +438,8 @@ namespace daisy
                 return;
             for (size_t i = 0; i < size; i++)
             {
-                const float sigl = usb_in_[0][i] * ingain_ * kLineInGain;
-                const float sigr = usb_in_[1][i] * ingain_ * kLineInGain;
+                const float sigl = usb_in_[0][i] * ingain_;
+                const float sigr = usb_in_[1][i] * ingain_;
 
                 monitor[0][i] += sigl;
                 monitor[1][i] += sigr;
