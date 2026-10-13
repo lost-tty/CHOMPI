@@ -6,6 +6,8 @@
 #include "FileCopier.h"
 #include "Clock.h"
 #include "Hold.h"
+#include "Audition.h"
+#include "Onset.h"
 
 namespace chompi
 {
@@ -189,7 +191,8 @@ namespace chompi
 
             fx_->SetGlobalPitch(1.f);
             fx_->SetReverse(false);
-            
+            fx_->SetSwitch(!switch_state);
+
             fx_->SetInputGain(.75f);
 
 
@@ -258,6 +261,8 @@ namespace chompi
 
             if(knob_page[0] == 2)
                 arp_knob.Update(now);
+            const Audition::Event audition_event = audition.Update(now);
+            AuditionEvent(audition_event, audition.What());
             if(knob_page[3] == 0 && magic_hold.Held(now)) // the reverb page, where it shows
                 grains.ToggleFreeze();
 
@@ -293,8 +298,55 @@ namespace chompi
                 }
             }
 
+            // the switch up with a sample in RAM: START and END edit it, the keys show it
+            const bool edit_keys = fx_->LoopEdit() || (!switch_state && fx_->EditInRam());
+            int at_start = 0, at_end = 0, at_play = 0;
+            bool on_transient = false, blink = false;
+            const float *profile = nullptr;
+            if(edit_keys)
+            {
+                at_start = std::min(int(kProfile) - 1, int(fx_->EditPoint(0) * kProfile));
+                at_end = std::min(int(kProfile) - 1, int(fx_->EditPoint(1) * kProfile));
+                at_play = int(fx_->EditPlayhead() * kProfile);
+                on_transient = fx_->EditOnTransient();
+                blink = (now / 250) % 2;
+                profile = EditProfile();
+            }
             for(size_t i = 7; i < (25 + 7); i++)
             {
+                if(edit_keys) // the white keys: what's edited in bins, START's blinks yellow, END's red
+                {
+                    const int bin = WhiteKey(KeySlice(i));
+                    if(bin < 0)
+                    {
+                        SetSmtLed(led_map[i], 0, 0, 0);
+                        continue;
+                    }
+                    const float *c = white;
+                    float v = .05f + .95f * profile[bin];
+                    if(bin == at_start && on_transient)
+                    {
+                        c = dark_orange;
+                        v = 1.f;
+                    }
+                    else if(bin == at_start && bin == at_end)
+                    {
+                        c = blink ? yellow : red;
+                        v = 1.f;
+                    }
+                    else if((bin == at_start || bin == at_end) && blink)
+                    {
+                        c = bin == at_start ? yellow : red;
+                        v = 1.f;
+                    }
+                    else if(bin == at_play && (blink || bin == at_start || bin == at_end))
+                    {
+                        c = blue;
+                        v = 1.f;
+                    }
+                    SetSmtLedFloat(led_map[i], c[0] * v, c[1] * v, c[2] * v);
+                    continue;
+                }
                 size_t slot = KeyToSlot(i);
                 const float* color = &pink[0];
                 if(fx_->GetVoiceSlot() != 15 || fx_->GetVoiceMode() == VoiceMode::CUBBI)
@@ -351,6 +403,18 @@ namespace chompi
             {
                 uint8_t page = knob_page[i];
                 float value = enc_values[page][i];
+                if(fx_->LoopEdit() && (i == 0 || i == 3)) // pitch and the FX are out
+                {
+                    SetPthLedFloat(i + 1, 0.f, 0.f, 0.f);
+                    continue;
+                }
+                if(i == 1 || i == 2) // the points: the sample's, the loop's in loop edit
+                {
+                    if(fx_->LoopEdit())
+                        page = 0;
+                    if(page == 0)
+                        value = fx_->EditPoint(i - 1);
+                }
 
                 float r = 0.f; 
                 float g = 0.f;
@@ -403,10 +467,12 @@ namespace chompi
                         fx_->SetAttack(value);
                     }
 
-                    if(!switch_state)
+                    if(!edit_keys && !switch_state)
                     {
                         r = g = b = 0.f;
-                    }   
+                    }
+                    if(fx_->EditOnTransient())
+                        r = g = b = 1.f;
 
                     SetPthLedFloat(2, r, g, b);
                     break;
@@ -430,7 +496,7 @@ namespace chompi
                         fx_->SetDecay(value);
                     }
 
-                    if(!switch_state)
+                    if(!edit_keys && !switch_state)
                     {
                         r = g = b = 0.f;
                     }
@@ -703,10 +769,15 @@ namespace chompi
                 g *= kRecDim;
                 b *= kRecDim;
             }
+            if(fx_->LoopEdit())
+            {
+                r = magenta[0];
+                g = magenta[1];
+                b = magenta[2];
+            }
             SetPthLedFloat(led_map[34], r, g, b);
 
             // chompi key
-            fx_->SetInputMonitor(!switch_state);
             if (!switch_state)
             {
                 if(copier_->IsCopying())
@@ -952,6 +1023,8 @@ namespace chompi
 
             // keys
             default:
+                if(rising && fx_->LoopEdit()) // off, a release still ends its note
+                    break;
                 if (rising)
                 {
                     // real keypress
@@ -990,6 +1063,20 @@ namespace chompi
             }
 
             return true;
+        }
+
+        void AuditionEvent(Audition::Event e, int what)
+        {
+            if(e != Audition::Event::kNone)
+                fx_->AuditionPoint(Engine::Point(what), e == Audition::Event::kStart);
+        }
+
+        // A point moved: its audition starts once the knob rests.
+        void AuditionTurn(Engine::Point p)
+        {
+            if(audition.On())
+                AuditionEvent(Audition::Event::kStop, audition.What());
+            audition.Turn(int(p), System::GetNow(), fx_->AuditionMs(p));
         }
 
         void OpenCubbiSlot(size_t slot)
@@ -1090,6 +1177,32 @@ namespace chompi
             if(encoderID == 3) // turned while pressed: no click, no freeze
                 magic_hold.Cancel();
 
+            // START and END on the sample page: a CC sets the sample's point as a fraction. A detent moves the last
+            // played slice of a kit, else the point of what is edited, which the engine keeps; an event is one
+            // detent, its turns carry the knob pages' scale.
+            if(page == 0 && (encoderID == 1 || encoderID == 2))
+            {
+                const int k = encoderID - 1;
+                if(stepsPerRevolution > 0)
+                {
+                    const float f = turns / 127.f;
+                    if(k ? fx_->SetEndPoint(f) : fx_->SetStartPoint(f))
+                        DumpValuePresets();
+                    return true;
+                }
+                if(!fx_->LoopEdit() && fx_->EditKit(k == 1, turns))
+                    return true;
+                if(!fx_->MovePoint(k, turns < 0 ? -1 : 1))
+                    return true;
+                AuditionTurn(k ? Engine::Point::kEnd : Engine::Point::kStart);
+                if(!fx_->LoopEdit())
+                {
+                    hw_->SendCC(midi_channel, cc_map[0][encoderID], fx_->SamplePoint(k) * 127);
+                    DumpValuePresets();
+                }
+                return true;
+            }
+
             // no CC: enc_values[2][0] is the threshold
             if(encoderID == 0 && page == 2)
             {
@@ -1097,13 +1210,6 @@ namespace chompi
                     arp_knob.Turn(turns, false);
                 return true;
             }
-
-            // a kit: start and end edit the last played slice
-            if(page == 0 && (encoderID == 1 || encoderID == 2) && stepsPerRevolution == 0
-               && fx_->EditKit(encoderID == 2, turns))
-                return true;
-
-            bool update_presets = true;
 
             // overrode this to mean increment vs force knob position (used for CCs)
             if(stepsPerRevolution > 0)
@@ -1113,15 +1219,12 @@ namespace chompi
             else{
                 float inc = turns * kEncoderCoarseStep;
 
-                // fine steps for pitch, sample start, and sample end
                 if((encoderID == 0 && page == 0 && quantized_pitch_)
                     || (encoderID == 4 && quantized_pitch_))
                 {
                     inc = 0.f;
                 }
                 else if ((encoderID == 0 && page == 0 && !quantized_pitch_)
-                    || (encoderID == 1 && page == 0)
-                    || (encoderID == 2 && page == 0)
                     || (encoderID == 4 && !quantized_pitch_))
                 {
                     inc = turns * kEncoderFineStep;
@@ -1156,40 +1259,12 @@ namespace chompi
                 }  
             }
 
-            // don't allow end point too close to start point
-            // TODO: set here, if they don't update, don't update
-            if(page == 0 && (encoderID == 1 || encoderID == 2))
-            {
-                if ((enc_values[0][1] + .01f) >= enc_values[0][2])
-                {
-                    enc_values[page][encoderID] = old_val;
-                    // enc_values[0][2] = enc_values[0][1] + .01f;
-                }
-                else if(encoderID == 1)
-                {
-                    if(!fx_->SetStartPoint(enc_values[0][1]) && turns > 0)
-                    {
-                        update_presets = false;
-                        enc_values[page][encoderID] = old_val;
-                    }
-                }
-                else if(encoderID == 2)
-                {
-                    if(!fx_->SetEndPoint(enc_values[0][2]) && turns < 0)
-                    {
-                        update_presets = false;
-                        enc_values[page][encoderID] = old_val;                        
-                    }
-                }
-
-            }
-
             if (stepsPerRevolution == 0) {
                 hw_->SendCC(midi_channel, cc_map[page][encoderID], enc_values[page][encoderID] / top * 127);
             }
 
 
-            if(encoderID < 3 && update_presets)
+            if(encoderID < 3)
             {
                 DumpValuePresets();
             }
@@ -1220,10 +1295,12 @@ namespace chompi
 
         void SetSwitchState(bool state)
         {
-            if(state && !switch_state && (fx_->Recording() || fx_->IsRecordWaiting()) && !copier_->IsCopying())
+            if(state == switch_state)
+                return;
+            if(state && (fx_->Recording() || fx_->IsRecordWaiting()) && !copier_->IsCopying())
                 fx_->StopRecording();
-
-            switch_state = state; 
+            switch_state = state;
+            fx_->SetSwitch(!state);
         }
 
         void StartChompiRecording(float threshold)
@@ -1241,10 +1318,8 @@ namespace chompi
             enc_values[1][1] = enc_defaults[1][1];
             enc_values[1][2] = enc_defaults[1][2];
             const double frames = fx_->RecordFrames();
-            enc_values[0][1] = frames ? (fx_->RecordStart() + .5) / frames : 0.f;
-            enc_values[0][2] = frames ? std::min(1., (frames - fx_->RecordPost() + .5) / frames) : 1.f;
-            fx_->SetStartPointForce(enc_values[0][1]);
-            fx_->SetEndPointForce(enc_values[0][2]);
+            fx_->SetStartPointForce(frames ? (fx_->RecordStart() + .5) / frames : 0.f);
+            fx_->SetEndPointForce(frames ? std::min(1., (frames - fx_->RecordPost() + .5) / frames) : 1.f);
             DumpValuePresets();
         }
 
@@ -1256,10 +1331,39 @@ namespace chompi
             transport_hold.Lost();
             magic_hold.Lost();
             arp_knob.Lost();
+            if(audition.On())
+                AuditionEvent(Audition::Event::kStop, audition.What());
+            audition.Turn(0, System::GetNow());
         }
 
     private:
+        // The keys show what is edited in bins, measured when they are asked for memory they haven't seen.
+        static constexpr size_t kProfile = 15;
+        const float *EditProfile()
+        {
+            if(!fx_->EditInRam())
+                return profile_;
+            const Engine::Region r = fx_->EditRegion();
+            const bool loop_edit = fx_->LoopEdit();
+            if(r.mem != profile_mem_ || r.begin != profile_begin_ || r.end != profile_end_ || loop_edit != profile_loop_edit_)
+            {
+                profile_mem_ = r.mem;
+                profile_begin_ = r.begin;
+                profile_end_ = r.end;
+                profile_loop_edit_ = loop_edit;
+                chompi::Profile(r.mem, r.begin, r.end, profile_, kProfile);
+            }
+            return profile_;
+        }
+
         static int KeySlice(size_t key) { return key_map[key] - 48; } // as StartPlayback picks it
+        // a white key's number from the left, -1 for a black one
+        static int WhiteKey(int note)
+        {
+            static const int8_t kWhite[12] = {0, -1, 1, -1, 2, 3, -1, 4, -1, 5, -1, 6};
+            const int w = kWhite[note % 12];
+            return w < 0 ? -1 : note / 12 * 7 + w;
+        }
 
         Hardware *hw_;
         Engine *fx_;
@@ -1275,12 +1379,17 @@ namespace chompi
         uint8_t midi_channel = 0;
         bool switch_state = false;
         bool chompi_key_pressed = false;
+        Audition audition;
         int8_t transport_turns = 0;
         Hold transport_hold, magic_hold;
         uint32_t transport_flash = 0;
         uint8_t* knob_page;
         bool quantized_pitch_;
         bool split_delay_;
+        float profile_[kProfile] = {};
+        const int16_t *profile_mem_ = nullptr;
+        size_t profile_begin_ = 0, profile_end_ = 0;
+        bool profile_loop_edit_ = false;
 
         bool batt_display;
         uint32_t batt_hold;

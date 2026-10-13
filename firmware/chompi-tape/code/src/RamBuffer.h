@@ -59,10 +59,16 @@ namespace daisy
         size_t halve_len[12];
         uint8_t halve_count = 0;
         int8_t length_exp = 0;
-        // a loaded loop waits for the loop point, see FinishLoad()
-        bool pending_restart = false, loading = false;
+        // the next loop bounds: a length change keeps the phase, a loaded loop waits for the loop point and
+        // restarts, a cut keeps the heads where they are
+        enum class Pending : uint8_t { kLength, kRestart, kCut };
+        Pending pending = Pending::kLength;
+        bool loading = false;
 
         size_t pending_len = 0, pending_start = 0;
+        // the recording the loop is cut from, and the cut: the points, in samples of it
+        size_t rec_start = 0, rec_len = 0;
+        size_t cut_start = 0, cut_end = 0;
 
         UndoMemory* undo = nullptr;
 
@@ -99,6 +105,44 @@ namespace daisy
             buff->length = 0;
             buff->start = buff->base = read_head = write_head = pos;
             buff->copy_lo = buff->copy_hi = 0;
+            buff->rec_len = 0;
+            buff->cut_start = buff->cut_end = pos;
+        }
+
+        void MarkRecorded() { SetRecorded(buff->start, buff->length); }
+        inline size_t RecStart() const { return buff->rec_start; }
+        inline size_t RecLen() const { return buff->rec_len; }
+
+        // a point put at pos, or moved by n samples, within the recording; false when it didn't change
+        bool SetCut(int k, size_t pos)
+        {
+            if(!buff->rec_len)
+                return false;
+            size_t &pt = k ? buff->cut_end : buff->cut_start;
+            const size_t lo = k ? buff->cut_start + kMinLoopSize : buff->rec_start;
+            const size_t hi = k ? buff->rec_start + buff->rec_len : buff->cut_end - kMinLoopSize;
+            if(lo > hi)
+                return false;
+            const size_t v = std::min(hi, std::max(lo, pos)) & ~size_t(1);
+            if(v == pt)
+                return false;
+            pt = v;
+            return true;
+        }
+        bool MoveCut(int k, int32_t n)
+        {
+            const size_t pt = k ? buff->cut_end : buff->cut_start;
+            return SetCut(k, size_t(std::max<int32_t>(0, int32_t(pt) + n)));
+        }
+        inline size_t Cut(int k) const { return k ? buff->cut_end : buff->cut_start; }
+
+        inline size_t CutLen() const { return buff->cut_end - buff->cut_start; }
+
+        // the point as a fraction of the recording, for its LED
+        float CutFraction(int k) const
+        {
+            const size_t pt = k ? buff->cut_end : buff->cut_start;
+            return buff->rec_len ? float(double(pt - buff->rec_start) / buff->rec_len) : k ? 1.f : 0.f;
         }
 
         void BlockRead(int16_t* copy_buff, size_t size)
@@ -177,7 +221,7 @@ namespace daisy
         inline size_t GetStart() const { return buff->start; }
         inline size_t End() const { return buff->start + buff->length; }
 
-        inline size_t GetReadHead() { return read_head; }
+        inline size_t GetReadHead() const { return read_head; }
         inline bool ReadEOF() { return read_head >= End() || read_head >= kMaxRamBuffSize; }
         inline bool ReadLoop(bool rev) { return (rev && read_head <= buff->start) || (!rev && ReadEOF()); }
 
@@ -247,7 +291,8 @@ namespace daisy
                 buff->length = buff->pending_len;
             }
             buff->pending_len = 0;
-            buff->pending_restart = buff->loading = false;
+            buff->pending = RamBufferMemory::Pending::kLength;
+            buff->loading = false;
             MakeLengthBase();
         }
 
@@ -261,8 +306,9 @@ namespace daisy
             len &= ~size_t(1);
             if(len)
             {
+                SetRecorded(start, len);
                 buff->pending_start = start;
-                buff->pending_restart = true;
+                buff->pending = RamBufferMemory::Pending::kRestart;
                 __DMB();
                 buff->pending_len = len;
             }
@@ -273,20 +319,31 @@ namespace daisy
         {
             if(!buff->pending_len)
                 return false;
-            __DMB(); // FinishLoad() sets restart first
-            const bool restart = buff->pending_restart;
-            if(restart && !wrap)
+            __DMB(); // FinishLoad() sets the kind first
+            const RamBufferMemory::Pending kind = buff->pending;
+            if(kind == RamBufferMemory::Pending::kRestart && !wrap)
                 return false;
+            if(kind == RamBufferMemory::Pending::kCut)
+                DropUndo();
 
-            read_head = restart ? buff->pending_start : WrapInto(read_head);
-            write_head = restart ? buff->pending_start : WrapInto(write_head);
+            read_head = Into(kind, read_head);
+            write_head = Into(kind, write_head);
             buff->start = buff->pending_start;
             buff->length = buff->pending_len;
             buff->pending_len = 0;
-            if(restart)
+            if(kind != RamBufferMemory::Pending::kLength)
                 MakeLengthBase();
-            buff->pending_restart = false;
+            buff->pending = RamBufferMemory::Pending::kLength;
             return true;
+        }
+
+        // the loop as the cut says, at the next loop fade
+        void SetCut()
+        {
+            buff->pending_start = buff->cut_start;
+            buff->pending = RamBufferMemory::Pending::kCut;
+            __DMB();
+            buff->pending_len = (buff->cut_end - buff->cut_start) & ~size_t(1);
         }
 
         inline bool IsPending() const { return buff->pending_len; }
@@ -348,6 +405,7 @@ namespace daisy
                 buff->copy_lo = 0;
                 buff->copy_hi = len;
                 buff->length = len * 2;
+                buff->rec_len = std::max(buff->rec_len, End() - buff->rec_start);
             }
             else
             {
@@ -458,7 +516,7 @@ namespace daisy
 
         void StartUndoTake()
         {
-            if(!buff->undo || buff->loading || buff->pending_restart) // may overwrite the loaded loop
+            if(!buff->undo || buff->loading || buff->pending == RamBufferMemory::Pending::kRestart) // may overwrite the loaded loop
                 return;
             UndoMemory& u = *buff->undo;
 
@@ -545,6 +603,13 @@ namespace daisy
     private:
         inline size_t LoopEnd() const { return LoopStart() + LoopLength(); }
 
+        void SetRecorded(size_t start, size_t len)
+        {
+            buff->rec_start = buff->cut_start = start;
+            buff->rec_len = len;
+            buff->cut_end = start + len;
+        }
+
         void SetLoopLength(size_t len, bool rev)
         {
             if(len >= buff->length || read_head - buff->start + (rev ? 0 : kLoopFadeSize) < len)
@@ -587,10 +652,16 @@ namespace daisy
             return i < lo ? i : i + n;
         }
 
-        size_t WrapInto(size_t head) const
+        // a head once the pending bounds apply
+        size_t Into(RamBufferMemory::Pending kind, size_t head) const
         {
+            const size_t start = buff->pending_start, end = start + buff->pending_len;
+            if(kind == RamBufferMemory::Pending::kRestart)
+                return start;
+            if(kind == RamBufferMemory::Pending::kCut && head >= start && head <= end)
+                return head;
             const size_t rel = head > buff->start ? head - buff->start : 0;
-            return buff->pending_start + rel % buff->pending_len;
+            return start + rel % buff->pending_len;
         }
 
         static void FadeSeam(int16_t* seam, int step) __attribute__((noinline, optimize("Os")))

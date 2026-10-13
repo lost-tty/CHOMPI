@@ -8,6 +8,7 @@
 #include <atomic>
 #include "Streamer.h"
 #include "LooperEngine.h"
+#include "Onset.h"
 #include "daisysp.h"
 #include "DJFilter.h"
 #include "Warble.h"
@@ -38,10 +39,11 @@ static constexpr uint32_t kLineMonoTime = 24000;   // .5s
 static constexpr uint32_t kLineSettleTime = 72000; // 1.5s
 static constexpr uint32_t kLineStereoTime = 2400;  // 50ms
 static constexpr size_t kMaxPoly = 7;
+static constexpr size_t kStreams = kMaxPoly + 1; // the voices' and the audition's
 
 namespace daisy
 {
-    extern chompi::Stream voice_streams[kMaxPoly];
+    extern chompi::Stream voice_streams[kStreams];
 
     enum class VUTarget
     {
@@ -96,6 +98,8 @@ namespace daisy
         {
             START,
             STOP,
+            AUDITION_START, // key_: an Engine::Point
+            AUDITION_STOP,
             DUMMY,
         };
 
@@ -248,6 +252,15 @@ namespace daisy
             /* looper */
             looper.Init(samplerate, loop_buff, tape_slew);
 
+            point_step_ = samplerate * kPointStepMs / kMsPerS;
+            audition_frames_ = samplerate * kAuditionEndMs / kMsPerS;
+            audition_.Init(&voice_streams[kMaxPoly], samplerate, chompi_buff);
+            audition_.RestoreDefaults();
+            audition_.SetVelocity(127.f);
+            audition_.SetAttack(0.f);
+            audition_.SetDecay(.005f); // 20 ms release
+            audition_.SetAutoLoop(false); // the point, once
+
             /** Final output compressors */
             lim_hp_l_.Init();
             lim_hp_r_.Init();
@@ -380,6 +393,28 @@ namespace daisy
                 reverb_->SetDiffusion(reverb_amt_ * .6f);
 
                 reverb_->Process(&outl[i], &outr[i]);
+            }
+        }
+
+        // the FX, faded out while they are off; they keep running so their tails pass
+        void MixFx(float **out, size_t size)
+        {
+            if(fabsf(fx_mix_target_ - fx_mix_) < 1e-4f) // the fade lands
+                fx_mix_ = fx_mix_target_;
+            if(fx_mix_ == 1.f && fx_mix_target_ == 1.f)
+            {
+                ApplyFx(out[0], out[1], size);
+                return;
+            }
+            float dry[2][size];
+            std::copy(out[0], out[0] + size, dry[0]);
+            std::copy(out[1], out[1] + size, dry[1]);
+            ApplyFx(out[0], out[1], size);
+            for(size_t i = 0; i < size; i++)
+            {
+                fonepole(fx_mix_, fx_mix_target_, .001f);
+                out[0][i] = dry[0][i] + (out[0][i] - dry[0][i]) * fx_mix_;
+                out[1][i] = dry[1][i] + (out[1][i] - dry[1][i]) * fx_mix_;
             }
         }
 
@@ -526,19 +561,29 @@ namespace daisy
 
             for (size_t voice = 0; voice < kMaxPoly; voice++)
                 chompi_voice[voice].Prepare();
+            audition_.Prepare();
 
 
-            /** voice read*/
+            // for the ears only: the bus that joins after the FX, the looper and the recording
+            float (&dry)[2][kMaxBlock] = dry_;
+            std::fill(dry[0], dry[0] + size, 0.f);
+            std::fill(dry[1], dry[1] + size, 0.f);
+
+            /** voice read */
             for (size_t voice = 0; voice < kMaxPoly; voice++)
             {
                 if (chompi_voice[voice].Active())
                     chompi_voice[voice].Render(out[0], out[1], size);
             }
+            if(audition_.Active())
+                audition_.Render(dry[0], dry[1], size);
 
             for(size_t i = 0; i < size; i++)
             {
                 out[0][i] = daisysp::SoftClip(out[0][i]);
                 out[1][i] = daisysp::SoftClip(out[1][i]);
+                dry[0][i] = daisysp::SoftClip(dry[0][i]);
+                dry[1][i] = daisysp::SoftClip(dry[1][i]);
             }
 
             // add the monitor to the working space pre-FX
@@ -580,14 +625,14 @@ namespace daisy
 
             //fx_xfade_pre
             if(fx_pre_loop && fx_on)
-                ApplyFx(out[0], out[1], size);
+                MixFx(out, size);
 
             FollowDelay(size);
 
             looper.Process(out[0], out[1], size);
 
             if(!fx_pre_loop && fx_on)
-                ApplyFx(out[0], out[1], size);
+                MixFx(out, size);
 
             if(looper.CapturePrint(out[0], out[1], size))
                 bake_ = BakeState::RESET_FX;
@@ -644,6 +689,14 @@ namespace daisy
             else
             {
                 ApplyEnvelopeFollower(size, monitor);
+            }
+
+            for(size_t i = 0; i < size; i++)
+            {
+                out[0][i] += dry[0][i];
+                out[1][i] += dry[1][i];
+                out[2][i] += dry[0][i];
+                out[3][i] += dry[1][i];
             }
 
 
@@ -738,12 +791,74 @@ namespace daisy
             chompi::beat_clock.Process(out, size, .5f * kHpGain * mgain_, .5f * kLineOutGain * mgain_);
         }
 
-        inline void SetInputMonitor(bool monitor) 
+
+        // The switch down samples: the input is monitored, the FX and the arp are off.
+        void SetSwitch(bool sampling)
+        {
+            SetInputMonitor(sampling);
+            UpdateFx();
+        }
+
+        // loop edit: START and END cut the loop, the keys are off; selecting or loading anything ends it
+        bool EditLoops() const { return loop_edit_ || EditVoice().Loops(); }
+        void SetLoopEdit(bool on)
+        {
+            loop_edit_ = on;
+            snap_.Drop();
+            UpdateFx();
+        }
+        bool LoopEdit() const { return loop_edit_; }
+
+        // START and END edit the loop in loop edit, else the sample when it is in RAM (the recording or a loaded
+        // slot).
+        bool EditInRam() const
+        {
+            const daisy::RamBufferMemory *m = EditVoice().RamSource();
+            return loop_edit_ ? !looper.IsFirstRecording() : EditVoice().UsesRam() && m && m->length;
+        }
+        float SamplePoint(int k) const { return k ? EditVoice().EndPoint() : EditVoice().StartPoint(); }
+        float EditPoint(int k) const { return loop_edit_ ? looper.Point(k) : SamplePoint(k); }
+        float EditPlayhead() const { return loop_edit_ && looper.IsPlaying() ? looper.Playhead() : -1.f; } // -1 while nothing plays
+        bool EditOnTransient() const { return EditInRam() && snap_.On(EditSample(EditPoint(0))); }
+
+        // Returns the memory holding what is edited: the loop's recording or the sample's.
+        struct Region
+        {
+            const int16_t *mem;
+            size_t begin, end;
+        };
+        Region EditRegion() const
+        {
+            if(loop_edit_)
+                return {looper.Memory()->mem, looper.RecStart(), looper.RecStart() + looper.RecLen()};
+            const daisy::RamBufferMemory *m = EditVoice().RamSource();
+            return {m->mem, m->start, m->start + m->length};
+        }
+
+        // A point being set plays for a moment on a voice of its own: START from itself, END up to itself, and
+        // over the seam when what is edited loops.
+        enum class Point : uint8_t { kNone, kStart, kEnd };
+        static constexpr uint32_t kAuditionStartMs = 400, kAuditionEndMs = 800, kAuditionSeamMs = 1600;
+        uint32_t AuditionMs(Point p) const
+        {
+            if(p == Point::kStart)
+                return kAuditionStartMs;
+            return EditLoops() ? kAuditionSeamMs : kAuditionEndMs;
+        }
+        void AuditionPoint(Point p, bool on)
+        {
+            request_fifo.PushBack(KeyRequest(on ? KeyRequest::Type::AUDITION_START : KeyRequest::Type::AUDITION_STOP,
+                                             0.f, int(p), 0.f));
+        }
+
+        // Moves START (k 0) or END by turns, a detent 10 ms: the loop's cut in loop edit, else the edited sample's
+        // point. START settles on a transient. False when it didn't move.
+        bool MovePoint(int k, int turns) { return loop_edit_ ? MoveCut(k, turns) : MoveSamplePoint(k, turns); }
+
+        inline void SetInputMonitor(bool monitor)
         {
             input_monitor = monitor;
-            
-            if(in_source == InputSource::RESAMPLE)
-                resamp_env_target_ = monitor ? ingain_target_ : 1.f;
+            UpdateResampleGain();
         }
 
         inline float GetVUSample(VUTarget target)
@@ -954,11 +1069,10 @@ namespace daisy
             {
                 chompi_voice[free_idx].SetVarispeed(MidiNoteToPlaybackRatio(transpose_nn));
                 if(SlotLoaded() != chompi_voice[free_idx].IsLoaded()) // a .wav loaded or dropped since the voice was set up
-                    SetVoiceSource(free_idx, false);
+                    SetVoiceSource(chompi_voice[free_idx], false);
             }
             else if(voice_mode == VoiceMode::CUBBI)
                 chompi_voice[free_idx].SetVarispeed(1.f);
-
 
             chompi_voice[free_idx].StartPlaying();
         }
@@ -995,6 +1109,8 @@ namespace daisy
                     if(!kept && chompi::arp.Playing() != req.key_)
                         StopPlayback(req.key_);
                 }
+                else if (req.type_ == KeyRequest::Type::AUDITION_START || req.type_ == KeyRequest::Type::AUDITION_STOP)
+                    Audition(Point(req.key_), req.type_ == KeyRequest::Type::AUDITION_START);
             }
         }
 
@@ -1010,6 +1126,78 @@ namespace daisy
         void Prepare()
         {
             ProcessKeyReqs();
+        }
+
+        // the audition's voice plays what the points are set on, dry, while that isn't playing itself
+        void Audition(Point p, bool on)
+        {
+            Voice &a = audition_;
+            if(!on)
+            {
+                a.StopPlaying();
+                return;
+            }
+            float start = 0.f, end = 1.f, pitch = 1.f;
+            bool reverse = false;
+            uint32_t frames;
+            if(loop_edit_)
+            {
+                if(looper.IsFirstRecording() || looper.IsPlaying())
+                    return;
+                a.SetRamSource(looper.Memory(), false);
+                a.SetUsingRam(true, false);
+                frames = a.Frames();
+            }
+            else
+            {
+                if((voice_mode == VoiceMode::CUBBI && !cubbi_slot_) || AnyVoicesPlaying()) // no slot played yet, or it sounds
+                    return;
+                const Voice &v = EditVoice();
+                SetAuditionSource(v);
+                start = v.StartPoint();
+                end = v.EndPoint();
+                pitch = v.GetGlobalPitch();
+                reverse = v.GetReverse();
+                frames = v.Frames(); // the audition's stream may still be opening
+            }
+            a.SetStartPointForce(start);
+            a.SetEndPointForce(end);
+            a.SetReverse(reverse);
+            a.SetGlobalPitch(pitch);
+            a.SetVarispeed(1.f);
+            // the end's, when the region loops: over the seam
+            uint32_t from = ~0u;
+            const bool seam = p == Point::kEnd && EditLoops();
+            if(p == Point::kEnd)
+            {
+                const chompi::Span s = chompi::Span::Of(start, end, frames, reverse, false);
+                const uint32_t k = std::min(s.end - s.begin, audition_frames_);
+                from = s.reverse ? s.begin + k - 1 : s.end - k;
+            }
+            a.SetAutoLoop(seam);
+            a.StartPlaying(from);
+        }
+
+        // the slot a voice plays, from the same memory or file; the file stays open across auditions
+        void SetAuditionSource(const Voice &v)
+        {
+            if(v.GetSlot() == 15 || SlotLoaded())
+            {
+                SetVoiceSource(audition_, false);
+                return;
+            }
+            const bool same = !audition_.UsesRam() && audition_.GetSlot() == v.GetSlot() && audition_.GetBank() == v.GetBank()
+                              && audition_.GetCubbiMode() == v.GetCubbiMode();
+            if(!same)
+            {
+                char name[32];
+                GetFileNameForSlot(v.GetSlot(), v.GetBank(), voice_mode, name);
+                audition_.OpenFile(name, true);
+                audition_.SetSlot(v.GetSlot());
+                audition_.SetBank(v.GetBank());
+                audition_.SetCubbiMode(v.GetCubbiMode());
+            }
+            audition_.SetUsingRam(false, false);
         }
 
         bool IsKeyPlaying(int key)
@@ -1100,6 +1288,9 @@ namespace daisy
 
             return ret;
         }
+
+        // the voice START and END are set on
+        const Voice &EditVoice() const { return chompi_voice[voice_mode == VoiceMode::CUBBI ? latest_voice : 0]; }
 
         bool SetEndPoint(float val)
         {
@@ -1332,12 +1523,10 @@ namespace daisy
         }
         inline bool GetSustainActive() { return chompi_voice[latest_voice].GetSustainActive(); }
 
-        void SetInputGain(float gain) 
+        void SetInputGain(float gain)
         {
-            ingain_target_ = gain; 
-         
-            if(input_monitor && in_source == InputSource::RESAMPLE)
-                resamp_env_target_ = ingain_target_;
+            ingain_target_ = gain;
+            UpdateResampleGain();
         }
         
         inline void SetMainGain(float gain) { mgain_target_ = gain; }
@@ -1677,7 +1866,11 @@ namespace daisy
         inline void IncrementLooperDubGain(float gain) { looper.IncrementDubGain(gain); }
         inline float GetLooperDubGain() { return looper.GetDubGain(); }
 
-        inline void LooperOpenFile(bool play) { looper.OpenFile(play); }
+        inline void LooperOpenFile(bool play)
+        {
+            SourceChanged();
+            looper.OpenFile(play);
+        }
         inline void LooperStop(bool play = false) { looper.Stop(play); }
         inline void LooperLengthChange(int8_t steps) { looper.RequestLengthChange(steps); }
         inline void LooperResetLength() { looper.RequestLengthChange(-looper.GetLengthExp()); }
@@ -1704,8 +1897,9 @@ namespace daisy
             if(voice_mode == VoiceMode::CUBBI)
                 ResetVoiceKeys();
         }
-        inline void SetBank(size_t b) 
+        inline void SetBank(size_t b)
         {
+            SourceChanged();
             bank[int(voice_mode)] = b % 5;
 
             if(voice_mode == VoiceMode::CUBBI)
@@ -1897,7 +2091,7 @@ namespace daisy
             return true;
         }
 
-        bool ArpAllowed() { return voice_mode == VoiceMode::JAMMI && !KitSelected(); }
+        bool ArpAllowed() { return voice_mode == VoiceMode::JAMMI && !KitSelected() && !input_monitor; }
 
         // the JAMMI slot plays an .aif
         bool AiffSelected() { return voice_mode == VoiceMode::JAMMI && aiff_slot_; }
@@ -1950,6 +2144,7 @@ namespace daisy
 
         void SetVoiceSlot(size_t idx, bool click)
         {
+            SourceChanged();
             voice_slot_ = idx;
             
             if(voice_mode == VoiceMode::JAMMI)
@@ -1977,7 +2172,7 @@ namespace daisy
 
                 chompi_voice[i].SetSlot(idx); 
                 chompi_voice[i].SetCubbiMode(voice_mode == VoiceMode::CUBBI);
-                SetVoiceSource(i, click);
+                SetVoiceSource(chompi_voice[i], click);
             }
         }
 
@@ -1988,17 +2183,19 @@ namespace daisy
         }
 
         // from RAM: the loaded slot or the recording (slot 15); else from the card. Not inlined, it saves code room.
-        void SetVoiceSource(size_t i, bool click) __attribute__((noinline))
+        void SetVoiceSource(Voice &v, bool click) __attribute__((noinline))
         {
             const bool loaded = SlotLoaded();
-            chompi_voice[i].SetRamSource(loaded ? &chompi::slot_buff : chompi_writer.Memory(), loaded);
-            chompi_voice[i].SetUsingRam(loaded || voice_slot_ == 15, click);
+            v.SetRamSource(loaded ? &chompi::slot_buff : chompi_writer.Memory(), loaded);
+            v.SetUsingRam(loaded || voice_slot_ == 15, click);
         }
+
 
         inline VoiceMode GetVoiceMode () { return voice_mode; }
 
         inline void SetVoiceMode(VoiceMode m)
         {
+            SourceChanged();
             if(voice_mode != m)
                 ResetVoiceKeys();
             if(m != VoiceMode::JAMMI) // kits are JAMMI only
@@ -2070,6 +2267,65 @@ namespace daisy
         inline int GetPlayingKey(size_t idx) { return playing_key[idx]; }
 
     private:
+        // The FX run with the switch up and out of loop edit.
+        void UpdateFx() { fx_mix_target_ = input_monitor || loop_edit_ ? 0.f : 1.f; }
+
+        // Resampling plays through the input gain while the input is monitored; the gain is applied in RESAMPLE
+        // alone, so it is kept right whatever the source.
+        void UpdateResampleGain() { resamp_env_target_ = input_monitor ? ingain_target_ : 1.f; }
+
+        // Another source is edited: loop edit ends and the snap lets go.
+        void SourceChanged()
+        {
+            loop_edit_ = false;
+            snap_.Drop();
+            UpdateFx();
+        }
+
+        // Moves the loop's START or END by turns and snaps START onto a transient. False when it didn't move.
+        bool MoveCut(int k, int turns)
+        {
+            const size_t was = looper.Cut(k);
+            if(!looper.MoveCut(k, turns, point_step_))
+                return false;
+            if(k == 0)
+                looper.SetCut(0, Settle(was, looper.Cut(0)));
+            return true;
+        }
+
+        // Moves START or END of the edited sample by turns; START settles on a transient. False when it didn't
+        // move. The voices and the presets keep the points as fractions of the sample.
+        bool MoveSamplePoint(int k, int turns)
+        {
+            const Voice &v = EditVoice();
+            const uint32_t frames = v.Frames();
+            if(!frames)
+                return false;
+            const float was = SamplePoint(k);
+            int64_t at = int64_t(double(was) * frames + .5) + int64_t(turns) * point_step_;
+            at = std::max<int64_t>(0, std::min<int64_t>(frames, at));
+            if(k == 0 && EditInRam())
+            {
+                const Region r = EditRegion();
+                at = (Settle(EditSample(was), r.begin + 2 * size_t(at)) - r.begin) / 2;
+            }
+            const float f = float(double(at) / frames);
+            return f != was && (k ? SetEndPoint(f) : SetStartPoint(f));
+        }
+
+        // a fraction of what's edited, as a sample index of its memory
+        size_t EditSample(float f) const
+        {
+            const Region r = EditRegion();
+            return r.begin + 2 * size_t(double(f) * ((r.end - r.begin) / 2)); // in double, a point stays on its frame
+        }
+
+        // START moved from was to at: where it settles, on a transient or not
+        size_t Settle(size_t was, size_t at)
+        {
+            const Region r = EditRegion();
+            return snap_.Settle(r.mem, r.begin, r.end, was, at);
+        }
         /** @brief Converts a MIDI note number to a ratio of playback speed
          *  @param nn number of MIDI notes to transpose above or below original speed
          *
@@ -2166,6 +2422,14 @@ namespace daisy
         
         bool fx_pre_loop;
         float fx_env_, fx_env_target_;
+        float fx_mix_ = 1.f, fx_mix_target_ = 1.f;
+        bool loop_edit_ = false;
+        Voice audition_;
+        chompi::Snap snap_;
+        static constexpr float kMsPerS = 1000.f;
+        static constexpr uint32_t kPointStepMs = 10;
+        uint32_t point_step_;      // frames a detent moves a point
+        uint32_t audition_frames_; // END's audition starts this far before the end
         // UI writes OFF, REFUSED and RESET_FX, the audio thread the rest
         enum class BakeState { OFF, REQUESTED, REFUSED, PRINTING, RESET_FX, FX_RESET };
         volatile BakeState bake_ = BakeState::OFF;
@@ -2177,6 +2441,7 @@ namespace daisy
         bool usb_connected_ = false, usb_streaming_ = false;
         const float *const *usb_in_ = nullptr;
         float monitor_[2][kMaxBlock];
+        float dry_[2][kMaxBlock];
         const float *monitor_ptr_[2] = {monitor_[0], monitor_[1]};
         float mix_[2][kMaxBlock];
         const float *mix_ptr_[2] = {mix_[0], mix_[1]};

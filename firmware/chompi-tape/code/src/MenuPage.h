@@ -486,28 +486,29 @@ namespace chompi
                          || (encoderID == 2 && page == 0)
                 )
                 {
+                    float start = fx_->SamplePoint(0), end = fx_->SamplePoint(1);
                     // positive and negative get blocked from moving out of bounds
-                    if( !(turns > 0 && enc_values[0][2] + inc > 1.f) // positive clip
-                        && !(turns < 0 && enc_values[0][1] + inc < 0.f) ) // negative clip
+                    if( !(turns > 0 && end + inc > 1.f) // positive clip
+                        && !(turns < 0 && start + inc < 0.f) ) // negative clip
                     {
-                        enc_values[0][1] += inc;
-                        enc_values[0][2] += inc;
-                        fx_->SetStartPointForce(enc_values[0][1]);
-                        fx_->SetEndPointForce(enc_values[0][2]);
+                        start += inc;
+                        end += inc;
+                        fx_->SetStartPointForce(start);
+                        fx_->SetEndPointForce(end);
 
                         DumpValuePresets();
                     }
 
                     // start point
-                    r = color_xfade(yellow[0], orange[0], enc_values[0][1]);
-                    g = color_xfade(yellow[1], orange[1], enc_values[0][1]);
-                    b = color_xfade(yellow[2], orange[2], enc_values[0][1]);
+                    r = color_xfade(yellow[0], orange[0], start);
+                    g = color_xfade(yellow[1], orange[1], start);
+                    b = color_xfade(yellow[2], orange[2], start);
                     SetPthLedFloat(2, r, g, b);
 
                     // end point
-                    r = color_xfade(orange[0], red[0], enc_values[0][2]);
-                    g = color_xfade(orange[1], red[1], enc_values[0][2]);
-                    b = color_xfade(orange[2], red[2], enc_values[0][2]);
+                    r = color_xfade(orange[0], red[0], end);
+                    g = color_xfade(orange[1], red[1], end);
+                    b = color_xfade(orange[2], red[2], end);
                     SetPthLedFloat(3, r, g, b);
                     knob_page[1] = knob_page[2] = 0;
                 }
@@ -979,14 +980,23 @@ namespace chompi
 
             // white keys and play/pause
             default:
-                if((buttonID == 33 || buttonID == 34) && preset_mode == PresetMode::NONE)
+                if(buttonID == 33 || buttonID == 34) // both together: loop edit mode on or off
                 {
-                    if(rising)
-                        StartLongPress(buttonID);
-                    else if(long_press_key == buttonID)
+                    const int other = buttonID == 33 ? 34 : 33;
+                    if(rising && hw_->button_sr.State(other))
                     {
+                        fx_->SetLoopEdit(!fx_->LoopEdit());
                         long_press_key = kNoKey;
-                        fx_->IncrementLooperDubGain(buttonID == 33 ? -.1f : .1f);
+                    }
+                    else if(preset_mode == PresetMode::NONE)
+                    {
+                        if(rising)
+                            StartLongPress(buttonID);
+                        else if(long_press_key == buttonID)
+                        {
+                            long_press_key = kNoKey;
+                            fx_->IncrementLooperDubGain(buttonID == 33 ? -.1f : .1f);
+                        }
                     }
                 }
 

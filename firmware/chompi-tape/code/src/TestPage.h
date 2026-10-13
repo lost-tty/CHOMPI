@@ -231,8 +231,6 @@ namespace chompi
                     tog_sw.left = true;
                 else
                     tog_sw.right = true;
-
-                fx_->SetInputMonitor(!state);
             }
         }
 

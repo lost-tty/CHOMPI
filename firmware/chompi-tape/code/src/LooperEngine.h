@@ -117,6 +117,25 @@ namespace daisy
                     record = record_target = false;
                 undo_req = false;
             }
+            if(mark_req_ && !record) // the recording as written, its last block included
+            {
+                mark_req_ = false;
+                looper.ram_buff.MarkRecorded();
+            }
+            // a copy or a load addresses the loop as it is: the cut waits
+            if(cut_req_ && !looper.ram_buff.IsCopying() && !looper.ram_buff.IsPending())
+            {
+                cut_req_ = false;
+                if(!first_record && !IsPrinting() && !undoing)
+                {
+                    looper.Cut();
+                    uint32_t beat;
+                    float phase, len;
+                    bool midi;
+                    if(chompi::beat_clock.Get(beat, phase, &len, &midi)) // cut to the clock: the loop has its tempo
+                        loop_sync.quarter = len / chompi::beat_clock.QuartersPerBeat();
+                }
+            }
             if(!playing)
                 looper.ApplyPendingNow();
             if(base_req && !looper.ram_buff.IsPending()) // waits for a pending change
@@ -211,8 +230,8 @@ namespace daisy
 
         inline bool IsPrinting() { return print_state_ != PrintState::OFF || looper.IsPrinting(); }
 
-        inline bool IsPlaying() { return playing && !first_record; }
-        inline bool IsFirstRecording() { return first_record; }
+        inline bool IsPlaying() const { return playing && !first_record; }
+        inline bool IsFirstRecording() const { return first_record; }
 
         void IncrementDubGain(float gain) { looper.IncrementDubGain(gain, first_record && !record); }
         inline float GetDubGain() { return looper.GetDubGain(); }
@@ -335,6 +354,7 @@ namespace daisy
 
                 if(first_record) // reload, then overdub
                 {
+                    mark_req_ = true;
                     looper.JumpToStart();
                 }
 
@@ -380,6 +400,49 @@ namespace daisy
             {
                 playing = !playing;
             }
+        }
+
+        // loop edit: the points, in samples of the recording; with a clock, END keeps the loop a whole number
+        // of 16ths from the start
+        float Point(int k) const { return looper.ram_buff.CutFraction(k); }
+        bool MoveCut(int k, int turns, uint32_t step) // step: frames a detent moves
+        {
+            RamBuffer &rb = looper.ram_buff;
+            int32_t n = turns * int32_t(step) * 2;
+            uint32_t beat;
+            float phase, len;
+            bool midi;
+            if(k == 1 && chompi::beat_clock.Get(beat, phase, &len, &midi))
+            {
+                const int32_t sixteenth = int32_t(len / chompi::beat_clock.QuartersPerBeat() / 4.f) * 2;
+                const int32_t count = (int32_t(rb.CutLen()) + sixteenth / 2) / sixteenth + turns;
+                if(sixteenth <= 0 || count < 1)
+                    return false;
+                n = count * sixteenth - int32_t(rb.CutLen());
+            }
+            if(!rb.MoveCut(k, n))
+                return false;
+            cut_req_ = true;
+            return true;
+        }
+        bool SetCut(int k, size_t pos)
+        {
+            if(!looper.ram_buff.SetCut(k, pos))
+                return false;
+            cut_req_ = true;
+            return true;
+        }
+        size_t Cut(int k) const { return looper.ram_buff.Cut(k); }
+
+        daisy::RamBufferMemory *Memory() const { return looper.ram_buff.Memory(); }
+        size_t RecStart() const { return looper.ram_buff.RecStart(); }
+        size_t RecLen() const { return looper.ram_buff.RecLen(); }
+
+        // the playhead as a fraction of the recording
+        float Playhead() const
+        {
+            const RamBuffer &rb = looper.ram_buff;
+            return rb.RecLen() ? float(double(rb.GetReadHead() - rb.RecStart()) / rb.RecLen()) : 0.f;
         }
 
         void RequestLengthChange(int8_t steps)
@@ -477,6 +540,7 @@ namespace daisy
             record = false;
             record_arm = false;
             record_target = false;
+            looper.ram_buff.MarkRecorded();
 
             looper.SetVarispeed(1.f, true);
             looper.JumpToStart();
@@ -729,6 +793,7 @@ namespace daisy
         FileSampler looper;
         bool record, first_record, record_target;
         bool playing, play_target;
+        volatile bool cut_req_ = false, mark_req_ = false;
         uint32_t loop_end;
         uint32_t last_button_press;
         bool record_btn, play_btn;

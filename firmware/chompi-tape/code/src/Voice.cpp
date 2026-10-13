@@ -52,6 +52,7 @@ namespace chompi
     void Voice::RestoreDefaults()
     {
         auto_loop_ = sustain_ = true;
+        from_ = ~0u;
         pitch_ = 1.f;
         speed_ = next_speed_ = 1.f;
         reverse_ = false;
@@ -212,8 +213,8 @@ namespace chompi
     {
         if(a != Action::kRestart || use_ram_target_ || !running_)
             return true;
-        if(spare_ != Spare::kStart)
-            Fill(Spare::kStart);
+        if(spare_ != Spare::kStart || spare_pos_ != from_)
+            Fill(Spare::kStart, from_);
         stream_->ring[cur_ ^ 1].prefill = false;
         return SpareReady() || ++waited_ > kMaxWait;
     }
@@ -228,17 +229,18 @@ namespace chompi
         if(use_ram_)
         {
             span_ = RamSpan();
-            pos_ = span_.First();
+            pos_ = span_.Contains(from_) ? from_ : span_.First();
             gap_ = false;
             running_ = Prime();
             waiting_ = false;
         }
         else
         {
-            if(spare_ != Spare::kStart)
-                Fill(Spare::kStart);
+            if(spare_ != Spare::kStart || spare_pos_ != from_)
+                Fill(Spare::kStart, from_);
             Wait();
         }
+        from_ = ~0u;
         if(trigger)
         {
             env_.Retrigger(false);
@@ -360,6 +362,7 @@ namespace chompi
     void Voice::Stop()
     {
         running_ = waiting_ = ended_ = false;
+        from_ = ~0u;
         gate_ = false;
         env_.Init(sr_); // silent at once
         env_.SetSustainLevel(1.f);
@@ -543,6 +546,7 @@ namespace chompi
         seq_[k] = g.restart_seq + 1;
         g.restart_seq = seq_[k];
         spare_ = what;
+        spare_pos_ = pos;
     }
 
     bool Voice::SpareReady() const
@@ -583,8 +587,9 @@ namespace chompi
         Fill(Spare::kStart);
     }
 
-    void Voice::StartPlaying()
+    void Voice::StartPlaying(uint32_t from)
     {
+        from_ = from;
         if(!Active())
         {
             speed_ = next_speed_;

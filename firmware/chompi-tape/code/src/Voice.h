@@ -20,7 +20,7 @@ namespace chompi
         // every block, the voice playing or not: keeps the stream's next note filled from the start
         void Prepare();
 
-        void StartPlaying();
+        void StartPlaying(uint32_t from = ~0u); // from: a frame to begin at this once, else the start
         void StopPlaying();
         void Choke();
         bool IsPlaying() const { return env_.IsRunning() || gate_; }
@@ -34,6 +34,8 @@ namespace chompi
         void OpenFile(const char *name, bool reset);
         void CloseFile();
         bool IsLoaded() const { return loaded_; }
+        bool UsesRam() const { return use_ram_target_; }
+        const daisy::RamBufferMemory *RamSource() const { return ram_; }
         bool IsKit() const;
 
         // start and end, 0..1; false when too close for a loop
@@ -41,6 +43,9 @@ namespace chompi
         bool SetEndPoint(float val);
         void SetStartPointForce(float val);
         void SetEndPointForce(float val);
+        float StartPoint() const { return start_; }
+        float EndPoint() const { return end_; }
+        uint32_t Frames() const;
         void SetReverse(bool rev);
         bool GetReverse() const { return reverse_; }
         void SetAutoLoop(bool loop);
@@ -99,7 +104,6 @@ namespace chompi
         bool Prime();
         float Ahead() const;
         Span RamSpan() const;
-        uint32_t Frames() const;
         Ring &Cur() const { return stream_->ring[cur_]; }
         void Fill(Spare what, uint32_t pos = ~0u);
         void Swap();
@@ -117,6 +121,7 @@ namespace chompi
         int cur_;           // the ring that plays
         uint32_t seq_[2];   // the rings' restarts
         Spare spare_;
+        uint32_t spare_pos_; // the frame the spare was filled from, ~0 the span's first
         bool waiting_, running_;
         uint32_t waited_;   // samples a jump waits for the spare ring
 
@@ -141,6 +146,7 @@ namespace chompi
         uint32_t next_jump_;  // the ring frame where it jumps next: forward the first after it, backwards the last before it
 
         float start_, end_;
+        uint32_t from_;
         bool reverse_, play_reverse_, auto_loop_;
         float speed_, next_speed_, pitch_;
         float sr_;
