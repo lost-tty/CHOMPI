@@ -185,6 +185,7 @@ namespace chompi
             if (split_delay_) {
                 enc_values[0][3] = .5f;
             }
+            enc_values[0][5] = presets_->Volume();
 
             fx_->SetGlobalPitch(1.f);
             fx_->SetReverse(false);
@@ -1192,6 +1193,8 @@ namespace chompi
             {
                 DumpValuePresets();
             }
+            else if(encoderID == 5 && page == 0)
+                presets_->SetVolume(enc_values[0][5]);
 
             return true;
         }

@@ -356,7 +356,7 @@ namespace chompi
 
         void InitFromPresets()
         {
-            presets_manager->Init(defaults);
+            presets_manager->Init(defaults, enc_defaults[0][5]);
 
             strcpy(fname, "presets.json");
 

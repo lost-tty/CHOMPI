@@ -14,7 +14,7 @@ class PresetManager
     ~PresetManager() {}
 
 
-    void Init(const float* defaults)
+    void Init(const float* defaults, float volume_default)
     {
         updated = true;
         defaults_ = defaults;
@@ -36,6 +36,15 @@ class PresetManager
                 }
             }
         }
+        volume = volume_default;
+    }
+
+    // the main volume, saved with the presets
+    float Volume() const { return volume; }
+    void SetVolume(float v)
+    {
+        volume = v;
+        updated = true;
     }
 
     static constexpr int kMaxModes = 2; // jammi, cubbi
@@ -118,7 +127,8 @@ class PresetManager
 
         strcpy(append, PRE_VERSION);
         StrAppend(buffer, append);
-
+        sprintf(append, ",{\"volume\":%.5f}", double(volume) * 1000);
+        StrAppend(buffer, append);
         strcpy(append, "]"),
         StrAppend(buffer, append);
 
@@ -149,6 +159,10 @@ class PresetManager
             uint8_t numcontrols = kMaxControls;
             if(json_res != JSONSuccess) // V1
                 numcontrols = 7;
+
+            sprintf(query, "[3].volume");
+            if(JSON_Search(buffer, len, query, strlen(query), &value, &value_len) == JSONSuccess)
+                volume = std::max(0., std::min(1., atof(value) / 1000.));
 
             /** Get module presets */
             for(int mode = 0; mode < kMaxModes; mode++){
@@ -305,6 +319,7 @@ class PresetManager
 
 
     float values[kMaxModes][kMaxBanks][kMaxSlots][kMaxControls];
+    float volume;
     bool values_valid[kMaxModes][kMaxBanks][kMaxSlots];
 
     float chompi_value[kMaxControls]; // only store the chompi settings in memory
