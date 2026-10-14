@@ -1,7 +1,7 @@
 #pragma once
 #include "daisy_seed.h"
 #include "encoder.h"
-#include "temp_led_stuff.h"
+#include "Leds.h"
 #include "UsbDevice.h"
 
 #define ENC_5_SW 4 // this one weird switch isn't on the SR
@@ -171,9 +171,6 @@ namespace chompi
             encoder_sr_cfg.dbc_size = 50; // we're not actually using this
             encoder_sr.Init(encoder_sr_cfg);
 
-            /** Digital LEDs */
-            /** TODO: cleanup stuff in temp_led_stuff.h and add here */
-
             /** MIDI */
             MidiUartHandler::Config uart_midi_cfg;
             uart_midi.Init(uart_midi_cfg);
@@ -240,18 +237,7 @@ namespace chompi
         /** in case ofbatt_level_checkt legacy cable sleep, shut off leds first */
         void LedsOff()
         {
-            for(size_t i = 0; i < kNumPthLeds; i++)
-            {
-                SetPthLed(i, 0, 0, 0);
-            }
-
-            for(size_t i = 0; i < kNumSmtLeds; i++)
-            {
-                SetSmtLed(i, 0, 0, 0);
-            }
-
-            // ========   send the data   =========
-            fill_led_data();
+            leds.Off();
         }
 
         uint32_t batt_level_checkt;
@@ -268,6 +254,7 @@ namespace chompi
             {
                 uint32_t shutdown_time_ = System::GetNow();
                 uint32_t last_update = shutdown_time_;
+                leds.Off(); // the strip is the warning's
 
                 while(System::GetNow() - shutdown_time_ < 15000)
                 {
@@ -282,15 +269,15 @@ namespace chompi
                             return; // break out early if battery status changed
 
                         bool led_on = (now / 250) % 2 == 0;
-                        for(size_t i = 0; i < kNumPthLeds; ++i)
+                        for(size_t i = 0; i < LedFrame::kPth; ++i)
                         {
                             if(led_on)
-                                SetPthLedFloat(i, 1.f, .95f, .05f);
+                                leds.ui.Pth(i, 1.f, .95f, .05f);
                             else
-                                SetPthLedFloat(i, 0.f, 0.f, 0.f);
+                                leds.ui.Pth(i, 0.f, 0.f, 0.f);
                         }
 
-                        fill_led_data();
+                        leds.Show();
                     }
                 }
 
@@ -335,7 +322,8 @@ namespace chompi
             uint16_t address = 0x3F;
 
             uint8_t tx_buff[] = {0x11};
-            i2c.TransmitBlocking(address, tx_buff, 1, 200);
+            if(i2c.TransmitBlocking(address, tx_buff, 1, 200) != daisy::I2CHandle::Result::OK) // the last reading stands
+                return;
 
             read_ready = false;
             size_t buff_size = 0x06;
@@ -345,8 +333,8 @@ namespace chompi
         static void batteryCallback(void *context, daisy::I2CHandle::Result result)
         {
             Hardware *self = static_cast<Hardware*>(context);
-            if(result != daisy::I2CHandle::Result::OK)
-                return; // handle error or retry later
+            if(result != daisy::I2CHandle::Result::OK) // the last reading stands
+                return;
 
             uint8_t *buff = self->mp_buff_;
 

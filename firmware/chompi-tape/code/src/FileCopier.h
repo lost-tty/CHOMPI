@@ -49,9 +49,14 @@ class FileCopier
             looper_ram.Init(looper_buff);
         }
 
-        // true while copying; the card is the copier's then
+        // true while the card is the copier's: a copy runs or a transfer is under way
         bool CopyProcess()
         {
+            if(scan_reading_) // the header landed: the rest of the tick runs
+            {
+                ScanStep();
+                return false;
+            }
             // looper jobs wait for copy, bake, pending change and undo
             if(!copying_ && !req_fifo.IsEmpty()
                 && (req_fifo.Front().is_looper == CopyRequest::RamDir::NONE
@@ -59,24 +64,70 @@ class FileCopier
                         && !looper_ram.IsUndoing())))
                 Begin();
 
-            if(!copying_)
-                return false;
-            Step();
-            return true;
+            if(copying_)
+            {
+                Step();
+                return true;
+            }
+            if(scanning_ && req_fifo.IsEmpty())
+                ScanStep();
+            return scan_reading_;
         }
 
         inline bool IsCopying()  { return copying_ || !req_fifo.IsEmpty(); }
+
+        // every slot's file made plain once, a slot a tick
+        void StartScan()
+        {
+            scan_slot_ = scan_bank_ = scan_mode_ = 0;
+            scan_reading_ = false;
+            scanning_ = true;
+        }
+        // the card is pulled: the copy under way is lost, the scan's read with it
+        void Detach()
+        {
+            if(copying_)
+                Abort();
+            scan_reading_ = false;
+        }
+        inline bool Scanning() const { return scanning_; }
         inline bool IsLooperStaged() { return looper_staged; }
         inline bool LooperWasPlaying() { return looper_was_playing; }
 
-        // an odd header or a footer: rewritten at boot, after Engine::UpdateFileExists
-        bool NeedsOverwrite(size_t idx, VoiceMode mode, size_t bank)
+        // the slot's header read by DMA; once it is in, an odd header or a footer queues the rewrite
+        void ScanStep()
         {
-            if(!fx_->GetFileExists(idx, bank, mode) || Engine::IsKitSlot(idx + 1, bank, mode))
-                return false;
-            char fname[32];
-            Engine::GetFileNameForSlot(idx + 1, bank, mode, fname);
-            return !Plain(fname);
+            const VoiceMode mode = VoiceMode(scan_mode_);
+            if(scan_reading_)
+            {
+                scan_reading_ = false;
+                uint32_t at, size;
+                const bool plain = !mem_.src->Failed() && chompi::WavData(mem_.in, kHeader, mem_.src->Size(), at, size)
+                                   && at == sizeof(WAV_FormatTypeDef) && at + size == mem_.src->Size();
+                mem_.src->Close();
+                if(!plain)
+                    Request(CopyRequest(scan_slot_ + 1, scan_bank_, mode, scan_slot_ + 1, scan_bank_, mode, false,
+                                        CopyRequest::RamDir::NONE, CopyRequest::RamDir::NONE));
+            }
+            else if(fx_->GetFileExists(scan_slot_, scan_bank_, mode) && !Engine::IsKitSlot(scan_slot_ + 1, scan_bank_, mode))
+            {
+                char fname[32];
+                Engine::GetFileNameForSlot(scan_slot_ + 1, scan_bank_, mode, fname);
+                if(mem_.src->Open(fname))
+                {
+                    scan_reading_ = chompi::sd_dma.Read(*mem_.src, 0, mem_.in, kHeader);
+                    if(scan_reading_)
+                        return;
+                    mem_.src->Close();
+                }
+            }
+            if(++scan_slot_ < 14)
+                return;
+            scan_slot_ = 0;
+            if(++scan_bank_ < 5)
+                return;
+            scan_bank_ = 0;
+            scanning_ = ++scan_mode_ < 2;
         }
 
         struct CopyRequest {
@@ -128,10 +179,17 @@ class FileCopier
             bool append = false;
         };
 
-        FIFO<CopyRequest, 16> req_fifo;
+        // from main or the SD timer
+        void Request(const CopyRequest &req)
+        {
+            ScopedIrqBlocker block;
+            req_fifo.PushBack(req);
+        }
 
     private:
         enum class Stage { FILL, FILLED, WRITTEN };
+
+        FIFO<CopyRequest, 16> req_fifo;
 
         void Begin()
         {
@@ -435,28 +493,20 @@ class FileCopier
             memcpy(to, &file_header, sizeof(file_header));
         }
 
-        // a WAV with the plain header and nothing after the data
-        bool Plain(const char *fname)
-        {
-            uint32_t size, at;
-            if(!mem_.src->Open(fname))
-                return false;
-            const bool plain = Find(at, size) && at == sizeof(WAV_FormatTypeDef) && at + size == mem_.src->Size();
-            mem_.src->Close();
-            return plain;
-        }
-
         // the data chunk of the open source: where it starts and its size in whole frames
         bool Find(uint32_t &at, uint32_t &size)
         {
             FIL &fil = mem_.src->fil;
             UINT br;
-            return f_lseek(&fil, 0) == FR_OK && f_read(&fil, mem_.in, 2048 + 8, &br) == FR_OK
+            return f_lseek(&fil, 0) == FR_OK && f_read(&fil, mem_.in, kHeader, &br) == FR_OK
                    && chompi::WavData(mem_.in, br, mem_.src->Size(), at, size);
         }
 
         Memory mem_;
         bool copying_;
+        static constexpr uint32_t kHeader = 2048 + 8; // of a file: enough to find the data chunk
+        bool scanning_ = false, scan_reading_ = false;
+        uint8_t scan_slot_ = 0, scan_bank_ = 0, scan_mode_ = 0;
         // loading next to the playing loop, which keeps playing until the loop point
         bool looper_staged = false;
         bool looper_was_playing = false;

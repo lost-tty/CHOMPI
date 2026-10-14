@@ -11,15 +11,13 @@ namespace daisy
     class FileSampler
     {
     public:
-        void Init(float sr, RamBufferMemory* buff, bool tape_slew)
+        void Init(float sr, RamBufferMemory* buff)
         {
             ram_buff.Init(buff);
             sr_ = sr;
             varispeed_factor = 1.f;
             scrub_ =  1.f;
             reverse_ = false;
-            
-            tape_slew_ = tape_slew;
 
             lim_l_.Init();
             lim_r_.Init();
@@ -287,6 +285,7 @@ namespace daisy
         }
 
         inline float GetVarispeed() { return varispeed_factor; }
+        inline void SetTapeSlew(bool on) { tape_slew_ = on; }
 
         // reverse functions only used internally (except getter)
         bool SetReverse(bool rev) 
@@ -473,7 +472,7 @@ namespace daisy
 
         float sr_;
 
-        bool tape_slew_;
+        bool tape_slew_ = true;
     };
 
 } // namespace daisy

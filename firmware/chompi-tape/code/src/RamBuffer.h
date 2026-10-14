@@ -82,11 +82,7 @@ namespace daisy
     class RamBuffer
     {
     public:
-        void Init(RamBufferMemory* b)
-        {
-            buff = b;
-            buff->Clear();
-        }
+        void Init(RamBufferMemory* b) { buff = b; }
 
         inline void Reset() { FillFrom(0); }
 

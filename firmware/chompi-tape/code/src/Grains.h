@@ -18,10 +18,10 @@ namespace chompi
         static constexpr int kGrains = 8;
         using Frame = InterpolatedDelayLine::AudioSample;
 
-        // mem is zeroed SDRAM
         void Init(Frame *mem)
         {
             mem_ = mem;
+            std::fill_n(mem, kFrames, Frame{});
             write_ = 0;
             amt_ = amt_target_ = 0.f;
             size_ = .5f;

@@ -2,7 +2,7 @@
 #pragma GCC optimize ("Os") // cold code, built for size so all of it fits in SRAM
 #include "hardware.h"
 #include "DSPEngine.h"
-#include "temp_led_stuff.h"
+#include "Leds.h"
 
 namespace chompi
 {
@@ -20,19 +20,19 @@ namespace chompi
                 last_blink_time = now;
                 blink = !blink;
 
-                for(int i = 0; i < kNumPthLeds; i++)
+                for(int i = 0; i < LedFrame::kPth; i++)
                 {
-                    SetPthLedFloat(i, blink * 1.f, 0.f, 0.f);
+                    leds.ui.Pth(i, blink * 1.f, 0.f, 0.f);
                 }
 
-                for(int i = 0; i < kNumSmtLeds; i++)
+                for(int i = 0; i < LedFrame::kSmt; i++)
                 {
-                    SetSmtLedFloat(i, blink * 1.f, 0.f, 0.f);
+                    leds.ui.Smt(i, blink * 1.f, 0.f, 0.f);
                 }
             }
 
             // ========   send the data   =========
-            fill_led_data();
+            leds.Show();
         }
 
         bool OnEncoderTurned(uint16_t encoderID,

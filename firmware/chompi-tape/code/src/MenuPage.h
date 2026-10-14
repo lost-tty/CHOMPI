@@ -2,7 +2,7 @@
 #pragma GCC optimize ("Os") // cold code, built for size so all of it fits in SRAM
 #include "hardware.h"
 #include "DSPEngine.h"
-#include "temp_led_stuff.h"
+#include "Leds.h"
 #include "FileCopier.h"
 
 namespace chompi
@@ -26,7 +26,7 @@ namespace chompi
 
 
         void Init(Hardware *hw, Engine *fx, FileCopier *copier, float** enc_arr, const float** def_arr,
-            uint8_t* page, PresetManager* pre, bool ps_quant, bool split_delay)
+            uint8_t* page, PresetManager* pre)
         {
             hw_ = hw;
             fx_ = fx;
@@ -35,9 +35,6 @@ namespace chompi
             enc_values = enc_arr;
             enc_defaults = def_arr;
             knob_page = page;
-            
-            quantized_pitch_ = ps_quant;
-            split_delay_ = split_delay;
 
             key_color = &purple[0];
 
@@ -124,23 +121,23 @@ namespace chompi
             {
                 r = g = b = 0.f;
             }
-            SetPthLedFloat(0, r, g, b);
+            leds.ui.Pth(0, r, g, b);
         
             // play / overdub keys
             if(preset_mode == PresetMode::NONE)
             {
                 const float gain = fx_->GetLooperDubGain();
                 if(now - undo_flash < 300)
-                    SetPthLedFloat(7, !undo_ok, undo_ok, 0.f);
+                    leds.ui.Pth(7, undo_ok ? 0.f : 1.f, undo_ok ? 1.f : 0.f, 0.f);
                 else
-                    SetPthLedFloat(7, gain, gain, gain);
+                    leds.ui.Pth(7, gain, gain, gain);
 
                 if(fx_->IsLooperPrinting())
-                    SetPthLedFloat(8, magenta[0], magenta[1], magenta[2]);
+                    leds.ui.Pth(8, magenta[0], magenta[1], magenta[2]);
                 else if(now - bake_refused < 300)
-                    SetPthLedFloat(8, red[0], red[1], red[2]);
+                    leds.ui.Pth(8, red[0], red[1], red[2]);
                 else
-                    SetPthLedFloat(8, gain, gain, gain);
+                    leds.ui.Pth(8, gain, gain, gain);
 
                 // the wheel shows the transport mode SHIFT + click switches to, the pitch once it turns
                 if(wheel_turned)
@@ -151,57 +148,57 @@ namespace chompi
                 {
                     const TransportMode mode = fx_->GetTransportMode();
                     const float* c = mode == TransportMode::LENGTH ? med_blue : mode == TransportMode::STEP ? purple : green;
-                    SetPthLedFloat(5, c[0], c[1], c[2]);
-                    SetPthLedFloat(6, c[0], c[1], c[2]);
+                    leds.ui.Pth(5, c[0], c[1], c[2]);
+                    leds.ui.Pth(6, c[0], c[1], c[2]);
                 }
             }
 
             else if (preset_mode == PresetMode::COPY_SRC
                 || preset_mode == PresetMode::COPY_DEST)
             {
-                SetPthLedFloat(5, 0.f, 0.f, 0.f);
-                SetPthLedFloat(6, 0.f, 0.f, 0.f);                
+                leds.ui.Pth(5, 0.f, 0.f, 0.f);
+                leds.ui.Pth(6, 0.f, 0.f, 0.f);                
 
                 if(selected_slot == 16)
                 {
-                    SetPthLedFloat(looper_append ? 8 : 7, blue[0], blue[1], blue[2]);
-                    SetPthLedFloat(looper_append ? 7 : 8, 0.f, 0.f, 0.f);
+                    leds.ui.Pth(looper_append ? 8 : 7, blue[0], blue[1], blue[2]);
+                    leds.ui.Pth(looper_append ? 7 : 8, 0.f, 0.f, 0.f);
                 }
                 else if(copy_src == 16)
                 {
-                    SetPthLedFloat(7, green[0], green[1], green[2]);
-                    SetPthLedFloat(8, green[0], green[1], green[2]);
+                    leds.ui.Pth(7, green[0], green[1], green[2]);
+                    leds.ui.Pth(8, green[0], green[1], green[2]);
                 }
                 else if(!blink_state)
                 {
-                    SetPthLedFloat(7, 0.f, 0.f, 0.f);
-                    SetPthLedFloat(8, 0.f, 0.f, 0.f);
+                    leds.ui.Pth(7, 0.f, 0.f, 0.f);
+                    leds.ui.Pth(8, 0.f, 0.f, 0.f);
                 }
                 else if(fx_->GetLooperIsEmpty() && preset_mode == PresetMode::COPY_DEST)
                 {
-                    SetPthLedFloat(7, .4f, .4f, .4f);
-                    SetPthLedFloat(8, .4f, .4f, .4f);
+                    leds.ui.Pth(7, .4f, .4f, .4f);
+                    leds.ui.Pth(8, .4f, .4f, .4f);
 
                 }
                 else if(!fx_->GetLooperIsEmpty())
                 {
-                    SetPthLedFloat(7, .4f * pink[0], .4f * pink[1], .4f * pink[2]);
-                    SetPthLedFloat(8, .4f * pink[0], .4f * pink[1], .4f * pink[2]);
+                    leds.ui.Pth(7, .4f * pink[0], .4f * pink[1], .4f * pink[2]);
+                    leds.ui.Pth(8, .4f * pink[0], .4f * pink[1], .4f * pink[2]);
                 }
                 // unselected, invalid destination
                 else
                 {
-                    SetPthLedFloat(7, 0.f, 0.f, 0.f);
-                    SetPthLedFloat(8, 0.f, 0.f, 0.f);
+                    leds.ui.Pth(7, 0.f, 0.f, 0.f);
+                    leds.ui.Pth(8, 0.f, 0.f, 0.f);
                 }
             }
             else
             {
-                SetPthLedFloat(5, 0.f, 0.f, 0.f);
-                SetPthLedFloat(6, 0.f, 0.f, 0.f);                
+                leds.ui.Pth(5, 0.f, 0.f, 0.f);
+                leds.ui.Pth(6, 0.f, 0.f, 0.f);                
 
-                SetPthLedFloat(7, 0.f, 0.f, 0.f);
-                SetPthLedFloat(8, 0.f, 0.f, 0.f);
+                leds.ui.Pth(7, 0.f, 0.f, 0.f);
+                leds.ui.Pth(8, 0.f, 0.f, 0.f);
             }
 
             // shift encoder display
@@ -210,7 +207,7 @@ namespace chompi
                 // FX
                 if(fx_reset)
                 {
-                    SetPthLedFloat(4, 1.f, 1.f, 1.f);
+                    leds.ui.Pth(4, 1.f, 1.f, 1.f);
                 }
                 else if(knob_page[3] == 0) // magic
                 {
@@ -218,17 +215,17 @@ namespace chompi
                     const int note = beat_clock.DelayNote();
                     const float knob = fx_->DelayKnob();
                     if(note >= 0 && fx_->DelayQuarter() > 0.f)
-                        SetPthLedFloat(4, kNoteColors[note][0], kNoteColors[note][1], kNoteColors[note][2]);
+                        leds.ui.Pth(4, kNoteColors[note][0], kNoteColors[note][1], kNoteColors[note][2]);
                     else
-                        SetPthLedFloat(4, knob, knob, knob);
+                        leds.ui.Pth(4, knob, knob, knob);
                 }
                 else if(knob_page[3] == 1) // lofi
                 {
-                    SetPthLedFloat(4, warble, warble, warble);
+                    leds.ui.Pth(4, warble, warble, warble);
                 }
                 else // filter
                 {
-                    SetPthLedFloat(4, resonance, resonance, resonance);
+                    leds.ui.Pth(4, resonance, resonance, resonance);
                 }
 
                 if(input_toggled)
@@ -267,7 +264,7 @@ namespace chompi
                     // b = color_xfade(yellow[2], purple[2], final_comp);
                 }
 
-                SetPthLedFloat(9, r, g, b);
+                leds.ui.Pth(9, r, g, b);
 
                 // pitch knob
                 if(pitch_reset)
@@ -287,7 +284,7 @@ namespace chompi
                 else
                     arp_knob.Led(true, System::GetNow(), r, g, b);
 
-                SetPthLedFloat(1, r, g, b);
+                leds.ui.Pth(1, r, g, b);
             }
 
             // save key
@@ -297,14 +294,14 @@ namespace chompi
                 && !no_sd_card_)
             {
                 if(fx_->GetFileExists(14))
-                    SetSmtLedFloat(9, blue[0], blue[1], blue[2]);
+                    leds.ui.Smt(9, blue[0], blue[1], blue[2]);
                 else
-                    SetSmtLedFloat(9, .1f, .1f, .1f);
+                    leds.ui.Smt(9, .1f, .1f, .1f);
     
             }
             else
             {
-                SetSmtLedFloat(9, 0.f, 0.f, 0.f);
+                leds.ui.Smt(9, 0.f, 0.f, 0.f);
             }
 
             // copy key
@@ -314,11 +311,11 @@ namespace chompi
                 || preset_mode == PresetMode::NONE)
                 && !no_sd_card_)
             {
-                SetSmtLedFloat(8, green[0], green[1], green[2]); // copy
+                leds.ui.Smt(8, green[0], green[1], green[2]); // copy
             }
             else
             {
-                SetSmtLedFloat(8, 0.f, 0.f, 0.f);
+                leds.ui.Smt(8, 0.f, 0.f, 0.f);
             }
 
             // erase key
@@ -327,57 +324,57 @@ namespace chompi
                 || preset_mode == PresetMode::NONE)
                 && !no_sd_card_)
             {
-                SetSmtLedFloat(7, red[0], red[1], red[2]); // erase
+                leds.ui.Smt(7, red[0], red[1], red[2]); // erase
             }
             else
             {
-                SetSmtLedFloat(7, 0.f, 0.f, 0.f);
+                leds.ui.Smt(7, 0.f, 0.f, 0.f);
             }
 
             // FX pre / post looper
             int led_sel = fx_->GetFxPreLooper() ? 5 : 6;
             int led_off = fx_->GetFxPreLooper() ? 6 : 5;
-            SetSmtLedFloat(led_sel, yellow[0], yellow[1], yellow[2]);
-            SetSmtLedFloat(led_off, 0.f, 0.f, 0.f);
+            leds.ui.Smt(led_sel, yellow[0], yellow[1], yellow[2]);
+            leds.ui.Smt(led_off, 0.f, 0.f, 0.f);
         
             // Input select, USB blue on the mic LED
             const InputSource source = fx_->GetInputSource();
             led_sel = source == InputSource::USB ? 2 : 2 + static_cast<int>(source);
-            SetSmtLedFloat(2, 0.f, 0.f, 0.f);
-            SetSmtLedFloat(3, 0.f, 0.f, 0.f);
-            SetSmtLedFloat(4, 0.f, 0.f, 0.f);
+            leds.ui.Smt(2, 0.f, 0.f, 0.f);
+            leds.ui.Smt(3, 0.f, 0.f, 0.f);
+            leds.ui.Smt(4, 0.f, 0.f, 0.f);
             const LineMode line = source == InputSource::LINE_IN ? fx_->GetLineMode() : LineMode::STEREO;
             if(source == InputSource::USB)
-                SetSmtLedFloat(led_sel, blue[0], blue[1], blue[2]);
+                leds.ui.Smt(led_sel, blue[0], blue[1], blue[2]);
             else if(line == LineMode::MONO)
-                SetSmtLedFloat(led_sel, red[0], red[1], red[2]);
+                leds.ui.Smt(led_sel, red[0], red[1], red[2]);
             else if(line == LineMode::MONO_RIGHT)
-                SetSmtLedFloat(led_sel, green[0], green[1], green[2]);
+                leds.ui.Smt(led_sel, green[0], green[1], green[2]);
             else
-                SetSmtLedFloat(led_sel, pink[0], .7f * pink[1], .7f * pink[2]);
+                leds.ui.Smt(led_sel, pink[0], .7f * pink[1], .7f * pink[2]);
 
             // white keys
             for (uint8_t i = 1; i < 16; i++)
             {
-                if(no_sd_card_ && i != 15)
-                    SetSmtLedFloat(25 - i, red[0], red[1], red[2]);
+                if(no_sd_card_)
+                    leds.ui.Smt(25 - i, red[0], red[1], red[2]);
                 else if(card_mode_)
-                    SetSmtLedFloat(25 - i, blue[0], blue[1], blue[2]);
+                    leds.ui.Smt(25 - i, blue[0], blue[1], blue[2]);
                 else if(preset_mode == PresetMode::SAVE_SEL && i == 15)
-                    SetSmtLedFloat(25 - i, pink[0], pink[1], pink[2]);
+                    leds.ui.Smt(25 - i, pink[0], pink[1], pink[2]);
                 else if(ss_bank == fx_->GetBank() && selected_slot == i && preset_mode == PresetMode::SAVE_SEL && fx_->GetVoiceMode() == ss_mode)
-                    SetSmtLedFloat(25 - i, blue[0], blue[1], blue[2]);
+                    leds.ui.Smt(25 - i, blue[0], blue[1], blue[2]);
                 else if(ss_bank == fx_->GetBank() && selected_slot == i && preset_mode == PresetMode::ERASE_SEL && fx_->GetVoiceMode() == ss_mode)
-                    SetSmtLedFloat(25 - i, red[0], red[1], red[2]);
+                    leds.ui.Smt(25 - i, red[0], red[1], red[2]);
                 else if(ss_bank == fx_->GetBank() && selected_slot == i && preset_mode == PresetMode::COPY_DEST && fx_->GetVoiceMode() == ss_mode)
-                    SetSmtLedFloat(25 - i, blue[0], blue[1], blue[2]);
+                    leds.ui.Smt(25 - i, blue[0], blue[1], blue[2]);
                 else if( (ss_bank == fx_->GetBank() && selected_slot == i && preset_mode == PresetMode::COPY_SRC && fx_->GetVoiceMode() == ss_mode)
                             || (cs_bank == fx_->GetBank() && copy_src == i && preset_mode == PresetMode::COPY_DEST && fx_->GetVoiceMode() == cs_mode) )
-                    SetSmtLedFloat(25 - i, green[0], green[1], green[2]);
+                    leds.ui.Smt(25 - i, green[0], green[1], green[2]);
                 else if( ((size_t(fx_->GetBank()) == fx_->GetVoiceBank() && fx_->GetVoiceSlot() == i) || (fx_->GetVoiceSlot() == 15 && i == 15))
                         && preset_mode == PresetMode::NONE 
                         && fx_->GetVoiceMode() == VoiceMode::JAMMI)
-                    SetSmtLedFloat(25 - i, 1.f, 1.f, 1.f);
+                    leds.ui.Smt(25 - i, 1.f, 1.f, 1.f);
                 else if (
                     preset_mode == PresetMode::SAVE_SEL 
                     || preset_mode == PresetMode::ERASE_SEL
@@ -386,37 +383,37 @@ namespace chompi
                 )
                 {
                     if (!blink_state)
-                        SetSmtLedFloat(25 - i, 0.f, 0.f, 0.f);
+                        leds.ui.Smt(25 - i, 0.f, 0.f, 0.f);
                     else if(preset_mode == PresetMode::ERASE_SEL && i == 15)
-                        SetSmtLedFloat(25 - i, 0.f, 0.f, 0.f);
+                        leds.ui.Smt(25 - i, 0.f, 0.f, 0.f);
                     else if(i == 15 && fx_->GetFileExists(i - 1))
-                        SetSmtLedFloat(25 - i, .4f * pink[0], .4f * pink[1], .4f * pink[2]);
+                        leds.ui.Smt(25 - i, .4f * pink[0], .4f * pink[1], .4f * pink[2]);
                     else if(fx_->GetFileExists(i - 1))
-                        SetSmtLedFloat(25 - i, .4f * key_color[0], .4f * key_color[1], .4f * key_color[2]);
+                        leds.ui.Smt(25 - i, .4f * key_color[0], .4f * key_color[1], .4f * key_color[2]);
                     else if (
                         preset_mode == PresetMode::SAVE_SEL
                         || preset_mode == PresetMode::COPY_DEST
                     )
                     {
-                        SetSmtLedFloat(25 - i, .4f, .4f, .4f);
+                        leds.ui.Smt(25 - i, .4f, .4f, .4f);
                     }
                     else
-                        SetSmtLedFloat(25 - i, 0.f, 0.f, 0.f);
+                        leds.ui.Smt(25 - i, 0.f, 0.f, 0.f);
                 }
                 else if(i == 15 && fx_->GetFileExists(i - 1))
-                        SetSmtLedFloat(25 - i, pink[0], pink[1], pink[2]);
+                        leds.ui.Smt(25 - i, pink[0], pink[1], pink[2]);
                 else if(fx_->GetFileExists(i - 1))
                 {
                     const float k = Engine::IsKitSlot(i, fx_->GetBank(), fx_->GetVoiceMode()) ? .3f : 1.f; // a kit dim
-                    SetSmtLedFloat(25 - i, k * key_color[0], k * key_color[1], k * key_color[2]);
+                    leds.ui.Smt(25 - i, k * key_color[0], k * key_color[1], k * key_color[2]);
                 }
                 else
-                    SetSmtLedFloat(25 - i, 0.f, 0.f, 0.f);
+                    leds.ui.Smt(25 - i, 0.f, 0.f, 0.f);
             }
 
             // banks
             int mode = int(fx_->GetVoiceMode());
-            SetSmtLedFloat(mode == 0 ? 1 : 0, 0.f, 0.f, 0.f);
+            leds.ui.Smt(mode == 0 ? 1 : 0, 0.f, 0.f, 0.f);
             switch(fx_->GetBank())
             {
                 case 0:
@@ -436,12 +433,12 @@ namespace chompi
             }                
 
             if(!no_sd_card_)
-                SetSmtLedFloat(mode, key_color[0], key_color[1], key_color[2]);
+                leds.ui.Smt(mode, key_color[0], key_color[1], key_color[2]);
             else
-                SetSmtLedFloat(mode, 0.f, 0.f, 0.f);
+                leds.ui.Smt(mode, 0.f, 0.f, 0.f);
 
             // ========   send the data   =========
-            fill_led_data();
+            leds.Show();
         }
 
 
@@ -503,13 +500,13 @@ namespace chompi
                     r = color_xfade(yellow[0], orange[0], start);
                     g = color_xfade(yellow[1], orange[1], start);
                     b = color_xfade(yellow[2], orange[2], start);
-                    SetPthLedFloat(2, r, g, b);
+                    leds.ui.Pth(2, r, g, b);
 
                     // end point
                     r = color_xfade(orange[0], red[0], end);
                     g = color_xfade(orange[1], red[1], end);
                     b = color_xfade(orange[2], red[2], end);
-                    SetPthLedFloat(3, r, g, b);
+                    leds.ui.Pth(3, r, g, b);
                     knob_page[1] = knob_page[2] = 0;
                 }
                 // set both attack and decay at once
@@ -528,8 +525,8 @@ namespace chompi
                     r = color_xfade(purple[0] * .2f, purple[0], val);
                     g = color_xfade(purple[1] * .2f, purple[1], val);
                     b = color_xfade(purple[2] * .2f, purple[2], val);
-                    SetPthLedFloat(2, r, g, b);
-                    SetPthLedFloat(3, r, g, b);
+                    leds.ui.Pth(2, r, g, b);
+                    leds.ui.Pth(3, r, g, b);
 
                     enc_values[1][1] = val;
                     enc_values[1][2] = val;
@@ -704,7 +701,7 @@ namespace chompi
                         arp_knob.Off();
 
                     DumpValuePresets();
-                    SetPthLedFloat(1, 1.f, 1.f, 1.f);
+                    leds.ui.Pth(1, 1.f, 1.f, 1.f);
                 }
             break;
             }
@@ -720,7 +717,7 @@ namespace chompi
                     fx_->ToggleAutoLoop();
                     float on = fx_->GetAutoLoop();
                     DumpValuePresets();
-                    SetPthLedFloat(2, on, on, on);
+                    leds.ui.Pth(2, on, on, on);
                 }
             break;
 
@@ -730,7 +727,7 @@ namespace chompi
                     fx_->ToggleSustainActive();
                     float on = fx_->GetSustainActive();
                     DumpValuePresets();
-                    SetPthLedFloat(3, on, on, on);
+                    leds.ui.Pth(3, on, on, on);
                 }
             break;
 
@@ -770,7 +767,7 @@ namespace chompi
                             selected_slot, ss_bank, ss_mode, selected_slot != 16, 
                             FileCopier::CopyRequest::RamDir::FROM, looper);
 
-                        copier_->req_fifo.PushBack(req);
+                        copier_->Request(req);
 
                         blink_startt = System::GetNow();
 
@@ -800,7 +797,7 @@ namespace chompi
                             chompi, looper);
                         req.append = looper_append && !fx_->IsLooperFirstRecording();
 
-                        copier_->req_fifo.PushBack(req);
+                        copier_->Request(req);
 
                         blink_startt = System::GetNow();
 
@@ -1130,6 +1127,11 @@ namespace chompi
         }
 
         inline void SetSwitchState(bool state) { switch_state = state; }
+        void SetOptions(bool ps_quant, bool split_delay)
+        {
+            quantized_pitch_ = ps_quant;
+            split_delay_ = split_delay;
+        }
 
         bool IsClosable()
         { 
@@ -1176,7 +1178,7 @@ namespace chompi
         }
 
         bool no_sd_card_ = false;
-        inline void NoSDCard() { no_sd_card_ = true; }
+        inline void NoSDCard(bool gone) { no_sd_card_ = gone; }
         bool card_mode_ = false, card_mode_request_ = false; // the card as a USB drive
         void CardMode(bool on) { card_mode_ = on; }
         bool TakeCardModeRequest()
@@ -1195,8 +1197,8 @@ namespace chompi
         const float** enc_defaults;
         uint8_t* knob_page;
 
-        bool quantized_pitch_;
-        bool split_delay_;
+        bool quantized_pitch_ = true;
+        bool split_delay_ = false;
 
         const float* key_color;
 

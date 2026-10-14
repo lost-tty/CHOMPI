@@ -181,13 +181,10 @@ namespace daisy
             daisysp::Reverb* reverb, 
             chompi::InterpolatedDelayLine::AudioSample* del,
             RamBufferMemory* loop_buff,
-            RamBufferMemory* chompi_buff,
-            bool tape_slew,
-            MonitorMode mon_mode)
+            RamBufferMemory* chompi_buff)
         {
             voice_mode = VoiceMode::JAMMI;
             latest_voice = 0;
-            monitor_mode = mon_mode;
 
             input_env_follower.Init();
             output_env_follower.Init();
@@ -245,12 +242,15 @@ namespace daisy
             chompi_writer.Init(chompi_buff);
             was_first_ = was_dub_ = false;
 
+            for(size_t m = 0; m < 2; m++) // slot 15 is the recording, card or not
+                for(size_t b = 0; b < 5; b++)
+                    file_exists[m][b][14] = true;
             SetVoiceMode(VoiceMode::JAMMI);
             SetBank(0);
             SetVoiceSlot(15, true);
 
             /* looper */
-            looper.Init(samplerate, loop_buff, tape_slew);
+            looper.Init(samplerate, loop_buff);
 
             point_step_ = samplerate * kPointStepMs / kMsPerS;
             audition_frames_ = samplerate * kAuditionEndMs / kMsPerS;
@@ -791,6 +791,8 @@ namespace daisy
             chompi::beat_clock.Process(out, size, .5f * kHpGain * mgain_, .5f * kLineOutGain * mgain_);
         }
 
+        void SetMonitorMode(MonitorMode mode) { monitor_mode = mode; }
+        void SetTapeSlew(bool on) { looper.SetTapeSlew(on); }
 
         // The switch down samples: the input is monitored, the FX and the arp are off.
         void SetSwitch(bool sampling)
@@ -1186,8 +1188,8 @@ namespace daisy
                 SetVoiceSource(audition_, false);
                 return;
             }
-            const bool same = !audition_.UsesRam() && audition_.GetSlot() == v.GetSlot() && audition_.GetBank() == v.GetBank()
-                              && audition_.GetCubbiMode() == v.GetCubbiMode();
+            const bool same = !audition_.GetCopyOccurred() && !audition_.UsesRam() && audition_.GetSlot() == v.GetSlot()
+                              && audition_.GetBank() == v.GetBank() && audition_.GetCubbiMode() == v.GetCubbiMode();
             if(!same)
             {
                 char name[32];
@@ -2008,22 +2010,9 @@ namespace daisy
             }
 
             for(size_t m = 0; m < 2; m++)
-            {
                 for(size_t b = 0; b < 5; b++)
-                {
-                    for(size_t s = 0; s < 15; s++)
-                    {
-                        if (s >= 14)
-                        {
-                            file_exists[m][b][s] = true;
-                        }
-                        else
-                        {
-                            SetSlotFiles(s, b, VoiceMode(m), wav[m][b][s], aif[b][s]);
-                        }
-                    }
-                }
-            }
+                    for(size_t s = 0; s < 14; s++)
+                        SetSlotFiles(s, b, VoiceMode(m), wav[m][b][s], aif[b][s]);
         }
 
         // one slot (0..13), read from the card
@@ -2162,18 +2151,23 @@ namespace daisy
                 chompi::slot_loader.Request(name_buffer);
 
             for(size_t i = 0; i < kMaxPoly; i++)
-            {
                 if(chompi_voice[i].IsLoaded() || kit) // slot_buff gets the new slot, no key up ends a kit slice
                     chompi_voice[i].StopPlaying();
-                if(idx != 15 && !kit)
-                {
-                    chompi_voice[i].OpenFile(name_buffer, true);
-                }
-
-                chompi_voice[i].SetSlot(idx); 
+            if(idx != 15 && !kit)
+                OpenFiles(name_buffer);
+            for(size_t i = 0; i < kMaxPoly; i++)
+            {
+                chompi_voice[i].SetSlot(idx);
                 chompi_voice[i].SetCubbiMode(voice_mode == VoiceMode::CUBBI);
                 SetVoiceSource(chompi_voice[i], click);
             }
+        }
+
+        // every voice streams the file
+        void OpenFiles(const char *name)
+        {
+            for(size_t i = 0; i < kMaxPoly; i++)
+                chompi_voice[i].OpenFile(name, true);
         }
 
         // the JAMMI slot plays from slot_buff: an .aif always, a .wav once it is loaded
@@ -2216,6 +2210,30 @@ namespace daisy
             }
         }
 
+        // the card is gone: what streams from it stops, what is in RAM plays on
+        void StopStreams()
+        {
+            for(size_t i = 0; i < kMaxPoly; i++)
+                if(!chompi_voice[i].UsesRam())
+                    chompi_voice[i].Choke();
+            if(!audition_.UsesRam())
+                audition_.Choke();
+        }
+        // the card is back: what streams opens its file anew; in CUBBI each voice has its own, the next key does it
+        void ReopenStreams()
+        {
+            audition_.SetCopyOccurred();
+            if(voice_mode == VoiceMode::CUBBI)
+            {
+                SetAllCopyOccurred();
+                return;
+            }
+            if(voice_slot_ == 15 || aiff_slot_)
+                return;
+            char name_buffer[32];
+            GetFileNameForSlot(voice_slot_, bank[int(voice_mode)], voice_mode, name_buffer);
+            OpenFiles(name_buffer);
+        }
         // otherwise, they are post looper
         void SetFxPreLooper(bool pre)
         {
@@ -2445,7 +2463,7 @@ namespace daisy
         const float *monitor_ptr_[2] = {monitor_[0], monitor_[1]};
         float mix_[2][kMaxBlock];
         const float *mix_ptr_[2] = {mix_[0], mix_[1]};
-        MonitorMode monitor_mode;
+        MonitorMode monitor_mode = MonitorMode::HP;
 
         /** No copy, no assign */
         Engine(const Engine &);

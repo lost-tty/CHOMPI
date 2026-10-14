@@ -55,9 +55,9 @@ namespace daisy
         LooperEngine() {}
         ~LooperEngine() {}
 
-        void Init(float sr, RamBufferMemory* loop_buff, bool tape_slew)
+        void Init(float sr, RamBufferMemory* loop_buff)
         {
-            looper.Init(sr, loop_buff, tape_slew);
+            looper.Init(sr, loop_buff);
 
             record = false;
             first_record = true;
@@ -303,6 +303,7 @@ namespace daisy
         }
 
         inline void SetPitch(float val) { looper.SetVarispeed(val); }
+        inline void SetTapeSlew(bool on) { looper.SetTapeSlew(on); }
         inline void SetReverse(bool rev) { looper.SetReverse(rev); }
         inline void SetScrub(float scrub) { looper.SetScrub(scrub); }
         inline float GetScrub() { return looper.GetScrub(); }

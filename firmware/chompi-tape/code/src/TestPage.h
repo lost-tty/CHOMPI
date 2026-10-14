@@ -2,7 +2,7 @@
 #pragma GCC optimize ("Os") // cold code, built for size so all of it fits in SRAM
 #include "hardware.h"
 #include "DSPEngine.h"
-#include "temp_led_stuff.h"
+#include "Leds.h"
 
 namespace chompi
 {
@@ -86,65 +86,65 @@ namespace chompi
                 {
                     r = turned[i].left;
                     g = turned[i].right;
-                    SetPthLedFloat(5, r, g, b);
-                    SetPthLedFloat(6, r, g, b);
+                    leds.ui.Pth(5, r, g, b);
+                    leds.ui.Pth(6, r, g, b);
                 }
                 else if(i == 5)
                 {
                     b = tog_sw.left;
                     r = g = tog_sw.right;
-                    SetPthLedFloat(led_map[i], r, g, b);
+                    leds.ui.Pth(led_map[i], r, g, b);
                 }
                 else if(i < 5)
                 {
                     r = turned[i].left;
                     g = turned[i].right;
-                    SetPthLedFloat(led_map[i], r, g, b);
+                    leds.ui.Pth(led_map[i], r, g, b);
                 }
                 else if(i == 32)
                 {
                     r = turned[5].left;
                     g = turned[5].right;
-                    SetPthLedFloat(led_map[i], r, g, b);
+                    leds.ui.Pth(led_map[i], r, g, b);
                 }
                 else if(i > 32 && i < 35)
                 {
                     b = sd_card;
-                    SetPthLedFloat(led_map[i], r, g, b);
+                    leds.ui.Pth(led_map[i], r, g, b);
                 }
                 else if(i == 7)
                 {
                     r = 1.f;
                     b = power_cable;
-                    SetSmtLedFloat(led_map[i], r, g, b);
+                    leds.ui.Smt(led_map[i], r, g, b);
                 }
                 else if(i == 12)
                 {
                     r = 1.f;
                     b = bmc_good;
-                    SetSmtLedFloat(led_map[i], r, g, b);
+                    leds.ui.Smt(led_map[i], r, g, b);
                 }
                 else if(i == 15)
                 {
                     r = 1.f;
                     b = num_notes_received == 20;
-                    SetSmtLedFloat(led_map[i], r, g, b);
+                    leds.ui.Smt(led_map[i], r, g, b);
                 }
                 else if(i == 28)
                 {
                     r = 1.f;
                     b = jack_detect;
-                    SetSmtLedFloat(led_map[i], r, g, b);
+                    leds.ui.Smt(led_map[i], r, g, b);
                 }
                 else
                 {
                     r = 1.f;
-                    SetSmtLedFloat(led_map[i], r, g, b);
+                    leds.ui.Smt(led_map[i], r, g, b);
                 }
             }
 
             // ========   send the data   =========
-            fill_led_data();
+            leds.Show();
         }
 
         bool OnEncoderTurned(uint16_t encoderID,

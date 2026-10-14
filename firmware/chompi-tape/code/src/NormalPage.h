@@ -2,7 +2,7 @@
 
 #include "hardware.h"
 #include "DSPEngine.h"
-#include "temp_led_stuff.h"
+#include "Leds.h"
 #include "FileCopier.h"
 #include "Clock.h"
 #include "Hold.h"
@@ -109,8 +109,6 @@ namespace chompi
     static const float kMagicTop = 2.f; // past 1 the magic knob goes into grains
     static const float kRecDim = .7f;
 
-    uint8_t led_pth_cache[kNumPthLeds][3]; /**< RGB data */
-    uint8_t led_smt_cache[kNumSmtLeds][3]; /**< RGB data */
 
     static const float white[3] = {1.f, 1.f, 1.f};
     static const float red[3] = {1.f, 0.f, 0.f};
@@ -144,9 +142,9 @@ namespace chompi
     {
         float r, g, b;
         speed_color(speed, r, g, b);
-        SetPthLedFloat(speed > .5f ? 6 : 5, r * k, g * k, b * k);
+        leds.ui.Pth(speed > .5f ? 6 : 5, r * k, g * k, b * k);
         const float other = std::max(0.f, speed_mid(speed) - .8f) * 5.f * k;
-        SetPthLedFloat(speed > .5f ? 5 : 6, red[0] * other, red[1] * other, red[2] * other);
+        leds.ui.Pth(speed > .5f ? 5 : 6, red[0] * other, red[1] * other, red[2] * other);
     }
 
     static const uint8_t knob_num_pages[6] = {3, 2, 2, 3, 1, 2};
@@ -154,11 +152,8 @@ namespace chompi
     class NormalPage : public daisy::UiPage
     {
     public:
-        uint32_t init_time;
-        bool init_ignore = true;
-
-        void Init(Hardware *hw, Engine *fx, FileCopier *copier, float** enc_arr, const float** def_arr, 
-                    uint8_t* page, PresetManager* pre, uint8_t midi_out_channel, bool ps_quant, bool split_delay)
+        void Init(Hardware *hw, Engine *fx, FileCopier *copier, float** enc_arr, const float** def_arr,
+                    uint8_t* page, PresetManager* pre)
         {
             hw_ = hw;
             fx_ = fx;
@@ -168,10 +163,6 @@ namespace chompi
             enc_defaults = def_arr;
             knob_page = page;
 
-            midi_channel = midi_out_channel;
-
-            quantized_pitch_ = !ps_quant;
-            split_delay_ = split_delay;
             transport_hold.Init();
             rec_hold.Init();
             magic_hold.Init();
@@ -184,9 +175,6 @@ namespace chompi
                 }
             }
 
-            if (split_delay_) {
-                enc_values[0][3] = .5f;
-            }
             enc_values[0][5] = presets_->Volume();
 
             fx_->SetGlobalPitch(1.f);
@@ -196,33 +184,26 @@ namespace chompi
             fx_->SetInputGain(.75f);
 
 
-            for (int i = 0; i < kNumSmtLeds; i++)
-                SetSmtLed(i, 0, 0, 0);
-            for (int i = 0; i < kNumPthLeds; i++)
-                SetPthLed(i, 0, 0, 0);
+            leds.ui.Clear();
 
             // 8mm leds
-            SetPthLedFloat(0, 0.f, 0.f, 0.f);
-            SetPthLedFloat(1, green[0], green[1], green[2]);
-            SetPthLedFloat(2, 0.f, 0.f, 0.f);
-            SetPthLedFloat(3, 0.f, 0.f, 0.f);
-            SetPthLedFloat(4, 0.f, 0.f, 0.f);
-            SetPthLedFloat(9, 0.f, 0.f, 0.f);
+            leds.ui.Pth(0, 0.f, 0.f, 0.f);
+            leds.ui.Pth(1, green[0], green[1], green[2]);
+            leds.ui.Pth(2, 0.f, 0.f, 0.f);
+            leds.ui.Pth(3, 0.f, 0.f, 0.f);
+            leds.ui.Pth(4, 0.f, 0.f, 0.f);
+            leds.ui.Pth(9, 0.f, 0.f, 0.f);
 
             // 5mm leds
-            SetPthLedFloat(5, 1.f, 1.f, 1.f);
-            SetPthLedFloat(6, 1.f, 1.f, 1.f);
-            SetPthLedFloat(7, 1.f, 1.f, 1.f);
-            SetPthLedFloat(8, 1.f, 1.f, 1.f);
-
-            for (int i = 0; i < kNumSmtLeds; i++)
-                SetSmtLed(i, 0, 0, 0);
-            // SetSmtLedFloat(i, .1f, .1f, .0f);
-            // SetSmtLedFloat(0, 0.f, 0.f, 0.f);
-            // SetSmtLedFloat(9, 0.f, 0.f, 0.f);
-            // SetSmtLedFloat(10, 0.f, 0.f, 0.f);
-
-            init_time = System::GetNow();
+            leds.ui.Pth(5, 1.f, 1.f, 1.f);
+            leds.ui.Pth(6, 1.f, 1.f, 1.f);
+            leds.ui.Pth(7, 1.f, 1.f, 1.f);
+            leds.ui.Pth(8, 1.f, 1.f, 1.f);
+            leds.ui.ClearKeys();
+            // leds.ui.Smt(i, .1f, .1f, .0f);
+            // leds.ui.Smt(0, 0.f, 0.f, 0.f);
+            // leds.ui.Smt(9, 0.f, 0.f, 0.f);
+            // leds.ui.Smt(10, 0.f, 0.f, 0.f);
         }
 
         uint32_t last_arm_blink;
@@ -234,23 +215,21 @@ namespace chompi
 
         void ResetSmtLeds()
         {
-            for(size_t i = 0; i < 25; i++)
-            {
-                SetSmtLed(i, 0.f, 0.f, 0.f);
-            }
+            leds.ui.ClearKeys();
         }
 
-        void CacheLeds()
+        // from options.json, once the card is read
+        void SetOptions(uint8_t midi_out_channel, bool ps_quant, bool split_delay)
         {
-            std::copy(&led_pth_data[0][0], &led_pth_data[0][0] + kNumPthLeds * 3, &led_pth_cache[0][0]);
-            std::copy(&led_smt_data[0][0], &led_smt_data[0][0] + kNumSmtLeds * 3, &led_smt_cache[0][0]);
+            midi_channel = midi_out_channel;
+            quantized_pitch_ = !ps_quant;
+            split_delay_ = split_delay;
+            if(split_delay_)
+                enc_values[0][3] = .5f;
         }
 
-        void RefreshLeds()
-        {
-            std::copy(&led_pth_cache[0][0], &led_pth_cache[0][0] + kNumPthLeds * 3, &led_pth_data[0][0]);
-            std::copy(&led_smt_cache[0][0], &led_smt_cache[0][0] + kNumSmtLeds * 3, &led_smt_data[0][0]);
-        }
+        // from presets.json, once the card is read
+        void ApplyPresets() { enc_values[0][5] = presets_->Volume(); }
 
         void Draw(const daisy::UiCanvasDescriptor &canvasDescriptor) override __attribute__((optimize("Os")))
         {
@@ -289,15 +268,6 @@ namespace chompi
                 fx_->ResetLooperPitchQuant();
             }
 
-            // ignore the first 1500 ms of inputs. Hack to stop random button presses on boot for now.
-            if (init_ignore)
-            {
-                if (now - init_time > 1500)
-                {
-                    init_ignore = false;
-                }
-            }
-
             // the switch up with a sample in RAM: START and END edit it, the keys show it
             const bool edit_keys = fx_->LoopEdit() || (!switch_state && fx_->EditInRam());
             int at_start = 0, at_end = 0, at_play = 0;
@@ -319,7 +289,7 @@ namespace chompi
                     const int bin = WhiteKey(KeySlice(i));
                     if(bin < 0)
                     {
-                        SetSmtLed(led_map[i], 0, 0, 0);
+                        leds.ui.Smt(led_map[i], 0, 0, 0);
                         continue;
                     }
                     const float *c = white;
@@ -344,7 +314,7 @@ namespace chompi
                         c = blue;
                         v = 1.f;
                     }
-                    SetSmtLedFloat(led_map[i], c[0] * v, c[1] * v, c[2] * v);
+                    leds.ui.Smt(led_map[i], c[0] * v, c[1] * v, c[2] * v);
                     continue;
                 }
                 size_t slot = KeyToSlot(i);
@@ -366,36 +336,36 @@ namespace chompi
                 const bool kit_leds = fx_->AiffSelected() && (switch_state || fx_->GetInputSource() != InputSource::MIC)
                                       && (fx_->KitSelected() || slot_loader.Busy() || slot_loader.Failed());
                 if (fx_->IsKeyPlaying(i))
-                    SetSmtLedFloat(led_map[i], 1.f, 1.f, 1.f);
+                    leds.ui.Smt(led_map[i], 1.f, 1.f, 1.f);
                 else if(kit_leds) // loading blinks, red is a file it can't play, the slices light, the one to edit brighter
                 {
                     const int slice = KeySlice(i);
                     if(slot_loader.Busy() && (System::GetNow() / 150) % 2)
-                        SetSmtLedFloat(led_map[i], color[0] * .25f, color[1] * .25f, color[2] * .25f);
+                        leds.ui.Smt(led_map[i], color[0] * .25f, color[1] * .25f, color[2] * .25f);
                     else if(slot_loader.Busy())
-                        SetSmtLed(led_map[i], 0, 0, 0);
+                        leds.ui.Smt(led_map[i], 0, 0, 0);
                     else if(slot_loader.Failed())
-                        SetSmtLedFloat(led_map[i], red[0] * .25f, red[1] * .25f, red[2] * .25f);
+                        leds.ui.Smt(led_map[i], red[0] * .25f, red[1] * .25f, red[2] * .25f);
                     else if(slice == slot_loader.LastSlice())
-                        SetSmtLedFloat(led_map[i], color[0] * .7f, color[1] * .7f, color[2] * .7f);
+                        leds.ui.Smt(led_map[i], color[0] * .7f, color[1] * .7f, color[2] * .7f);
                     else if(slot_loader.HasSlice(slice))
-                        SetSmtLedFloat(led_map[i], color[0] * .25f, color[1] * .25f, color[2] * .25f);
+                        leds.ui.Smt(led_map[i], color[0] * .25f, color[1] * .25f, color[2] * .25f);
                     else
-                        SetSmtLed(led_map[i], 0, 0, 0);
+                        leds.ui.Smt(led_map[i], 0, 0, 0);
                 }
                 else if(fx_->GetVoiceMode() == VoiceMode::CUBBI 
                         && (switch_state || fx_->GetInputSource() != InputSource::MIC)) // no perm KB leds if we're monitoring the mic
                 {
                     if (fx_->GetFileExists(slot - 1) && i == 28)
-                        SetSmtLedFloat(led_map[i], pink[0] * .25f, pink[1] * .25f, pink[2] * .25f);
+                        leds.ui.Smt(led_map[i], pink[0] * .25f, pink[1] * .25f, pink[2] * .25f);
                     else if(fx_->GetFileExists(slot - 1) && slot != kSlotNone)
-                        SetSmtLedFloat(led_map[i], color[0] * .25f, color[1] * .25f, color[2] * .25f);
+                        leds.ui.Smt(led_map[i], color[0] * .25f, color[1] * .25f, color[2] * .25f);
                 }
                 else if(fx_->GetVoiceMode() == VoiceMode::JAMMI && (i == 15 || i == 18 || i == 28)
                         && (switch_state || fx_->GetInputSource() != InputSource::MIC)) // no perm KB leds if we're monitoring the mic
-                    SetSmtLedFloat(led_map[i], color[0] * .25f, color[1] * .25f, color[2] * .25f);
+                    leds.ui.Smt(led_map[i], color[0] * .25f, color[1] * .25f, color[2] * .25f);
                 else
-                    SetSmtLed(led_map[i], 0, 0, 0);
+                    leds.ui.Smt(led_map[i], 0, 0, 0);
             }
 
             // =========   encoders   =========
@@ -405,7 +375,7 @@ namespace chompi
                 float value = enc_values[page][i];
                 if(fx_->LoopEdit() && (i == 0 || i == 3)) // pitch and the FX are out
                 {
-                    SetPthLedFloat(i + 1, 0.f, 0.f, 0.f);
+                    leds.ui.Pth(i + 1, 0.f, 0.f, 0.f);
                     continue;
                 }
                 if(i == 1 || i == 2) // the points: the sample's, the loop's in loop edit
@@ -445,7 +415,7 @@ namespace chompi
                     else
                         arp_knob.Led(false, now, r, g, b);
 
-                    SetPthLedFloat(1, r, g, b);
+                    leds.ui.Pth(1, r, g, b);
                 }
                 break;
                 case 1: // start point
@@ -474,7 +444,7 @@ namespace chompi
                     if(fx_->EditOnTransient())
                         r = g = b = 1.f;
 
-                    SetPthLedFloat(2, r, g, b);
+                    leds.ui.Pth(2, r, g, b);
                     break;
                 }
                 case 2: // end point
@@ -501,7 +471,7 @@ namespace chompi
                         r = g = b = 0.f;
                     }
 
-                    SetPthLedFloat(3, r, g, b);
+                    leds.ui.Pth(3, r, g, b);
                     break;
                 }
                 case 3: // magic
@@ -563,7 +533,7 @@ namespace chompi
                         r = g = b = 0.f;
                     }
 
-                    SetPthLedFloat(4, r, g, b);
+                    leds.ui.Pth(4, r, g, b);
 
                     break;
                 }
@@ -576,8 +546,8 @@ namespace chompi
                     if(fx_->GetLooperIsEmpty() || beats)
                     {
                         const float c = beats && phase < .25f ? (beat % beat_clock.BeatsPerBar() ? .3f : 1.f) : 0.f;
-                        SetPthLedFloat(5, c, c, c);
-                        SetPthLedFloat(6, c, c, c);
+                        leds.ui.Pth(5, c, c, c);
+                        leds.ui.Pth(6, c, c, c);
                     }
                     else if(fx_->GetTransportMode() != TransportMode::OFF)
                     {
@@ -606,8 +576,8 @@ namespace chompi
                             c = white;
                             left = right = 1.f;
                         }
-                        SetPthLedFloat(5, c[0] * left, c[1] * left, c[2] * left);
-                        SetPthLedFloat(6, c[0] * right, c[1] * right, c[2] * right);
+                        leds.ui.Pth(5, c[0] * left, c[1] * left, c[2] * left);
+                        leds.ui.Pth(6, c[0] * right, c[1] * right, c[2] * right);
                     }
                     else if(fx_->IsLooperPlaying())
                     {
@@ -619,7 +589,7 @@ namespace chompi
                         int led = 5 + (scrub > 0.f);
 
                         scrub = fabsf(scrub);
-                        SetPthLedFloat(led, scrub, scrub, scrub);
+                        leds.ui.Pth(led, scrub, scrub, scrub);
                     }
 
                     break;
@@ -670,7 +640,7 @@ namespace chompi
 
                         fx_->SetInputGain(value);
                     }
-                    SetPthLedFloat(9, r, g, b);
+                    leds.ui.Pth(9, r, g, b);
                     break;
                 }
                 default:
@@ -716,7 +686,7 @@ namespace chompi
                 g *= kRecDim;
                 b *= kRecDim;
             }
-            SetPthLedFloat(led_map[33], r, g, b);
+            leds.ui.Pth(led_map[33], r, g, b);
 
             // loop key
             if(fx_->GetLooperIsEmpty() && !fx_->IsLooperRecordArmed())
@@ -775,7 +745,7 @@ namespace chompi
                 g = magenta[1];
                 b = magenta[2];
             }
-            SetPthLedFloat(led_map[34], r, g, b);
+            leds.ui.Pth(led_map[34], r, g, b);
 
             // chompi key
             if (!switch_state)
@@ -834,17 +804,17 @@ namespace chompi
                 }
             } 
 
-            SetPthLedFloat(led_map[5], r, g, b);
+            leds.ui.Pth(led_map[5], r, g, b);
 
             // ========   send the data   =========
-            fill_led_data();
+            leds.Show();
         }
 
         bool OnButton(uint16_t buttonID,
                       uint8_t numberOfPresses,
                       bool isRetriggering) override
         {
-            if (init_ignore || copier_->IsCopying())
+            if (copier_->IsCopying())
             {
                 OnFocusLost(); // drop the holds, their release may be swallowed here
                 return false;
@@ -960,7 +930,7 @@ namespace chompi
             //         fx_->SetReverse(false);
 
             //         DumpValuePresets();
-            //         SetPthLedFloat(1, green[0], green[1], green[2]);
+            //         leds.ui.Pth(1, green[0], green[1], green[2]);
             //     }
 
             //     hw_->SendCC(midi_channel, key_map[buttonID], rising ? 127 : 0);
@@ -1137,7 +1107,7 @@ namespace chompi
                              int16_t turns,
                              uint16_t stepsPerRevolution) override
         {
-            if (init_ignore || copier_->IsCopying())
+            if (copier_->IsCopying())
                 return false;
 
             // sampling: the left encoder sets the recording threshold, off all the way down
@@ -1323,8 +1293,6 @@ namespace chompi
             DumpValuePresets();
         }
 
-        inline void SetInitIgnore(bool ignore) { init_ignore = ignore; }
-
         // the release went elsewhere: no click, no hold
         void OnFocusLost() override
         {
@@ -1384,8 +1352,8 @@ namespace chompi
         Hold transport_hold, magic_hold;
         uint32_t transport_flash = 0;
         uint8_t* knob_page;
-        bool quantized_pitch_;
-        bool split_delay_;
+        bool quantized_pitch_ = false;
+        bool split_delay_ = false;
         float profile_[kProfile] = {};
         const int16_t *profile_mem_ = nullptr;
         size_t profile_begin_ = 0, profile_end_ = 0;

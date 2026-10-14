@@ -3,11 +3,11 @@
 #include "NormalPage.h"
 #include "MenuPage.h"
 #include "TestPage.h"
-#include "BootPage.h"
 #include "NoSDPage.h"
-#include "RainbowWavePage.h"
+#include "Rainbow.h"
 #include "DSPEngine.h"
 #include "FileCopier.h"
+#include "OptionsManager.h"
 // #include "StereoDelayEffect.h"
 
 namespace chompi
@@ -44,17 +44,14 @@ namespace chompi
     class UserInterface
     {
     public:
-        void Init(Hardware *hw, Engine *fx, FileCopier* copier, PresetManager* pre,
-                    uint8_t ch_in, uint8_t ch_out, bool pitch_shift_quant, bool split_delay)
+        void Init(Hardware *hw, Engine *fx, FileCopier* copier, PresetManager* pre, const OptionsManager *options)
         {
             hw_ = hw;
             fx_ = fx;
             manager = fx_->GetFileManager();
             presets_manager = pre;
-
-            midi_in_ch = ch_in;
-
-            InitFromPresets();
+            options_ = options;
+            presets_manager->Init(defaults, enc_defaults[0][5]);
 
             /** Describe UI special controls - if any */
             daisy::UI::SpecialControlIds specialControlIds; /**< None here */
@@ -72,69 +69,48 @@ namespace chompi
                     {ledDisplayDescriptor},
                     canvasLedDisplay);
 
-            normal_page_.Init(hw_, fx_, copier, enc_rows, 
-                def_rows, knob_page, presets_manager, ch_out, pitch_shift_quant, split_delay);
+            normal_page_.Init(hw_, fx_, copier, enc_rows, def_rows, knob_page, presets_manager);
             ui.OpenPage(normal_page_);
-
-            boot_page_.Init(hw_, fx_);
-            ui.OpenPage(boot_page_);
-
-            menu_page_.Init(hw_, fx_, copier, enc_rows, def_rows, knob_page,
-                presets_manager, pitch_shift_quant, split_delay);
+            menu_page_.Init(hw_, fx_, copier, enc_rows, def_rows, knob_page, presets_manager);
 
             test_page_.Init(hw_, fx_);
-
-            uint16_t state = 0;
-            for (int i = 0; i < 512; i++)
-            {
-                hw->ProcessAllControls();
-                daisy::System::DelayUs(500);
-                state += !hw_->button_sr.State(static_cast<int>(Hardware::SwId::SW_TOG));
-            }
-
-            // state should be debounced
-            if (state >= 480)
-                event_queue.AddButtonPressed(static_cast<int>(Hardware::SwId::SW_TOG), 1);
         }
 
         inline bool InTestMode() { return test_page_.IsActive(); }
         void TestMode()
         {
+            rainbow_.Stop();
             ui.OpenPage(test_page_);
-            normal_page_.SetInitIgnore(false);
         }
 
-        void NoSDCard()
+        // the card pulled: a red blink, and the menu shows it until the card is back
+        void CardGone(bool gone)
         {
-            menu_page_.NoSDCard();
-        }
-
-        void CardMode(bool on) { menu_page_.CardMode(on); }
-        bool TakeCardModeRequest() { return menu_page_.TakeCardModeRequest(); }
-
-        void NoSDCardAnimation(bool run)
-        {
-            if(run)
+            menu_page_.NoSDCard(gone);
+            if(gone)
             {
                 ui.ClosePage(menu_page_);
                 ui.ClosePage(test_page_);
                 ui.OpenPage(no_sd_page_);
+                card_gone_at_ = System::GetNow();
             }
             else
                 ui.ClosePage(no_sd_page_);
         }
 
-        void RainbowWave() 
-        { 
-            if(!test_page_.IsActive()) 
-                ui.OpenPage(rainbow_page_);
-        }
-        inline bool InRainbows() { return rainbow_page_.IsActive(); }
+        void CardMode(bool on) { menu_page_.CardMode(on); }
+        bool TakeCardModeRequest() { return menu_page_.TakeCardModeRequest(); }
 
-        void StopBootAnimation()
+        // from the SD timer until main runs the UI: the rainbow, and the pages once there is sound
+        void BootTick(uint32_t now, bool pages)
         {
-            ui.ClosePage(boot_page_);
+            const bool drew = rainbow_.Step(now, false);
+            if(pages)
+                ui.Process(); // draws at its own frame rate
+            else if(drew)
+                leds.Show();
         }
+        inline bool InRainbows() const { return rainbow_.Running(); }
 
         bool key_cc[2];
         void ProcessMidi()
@@ -279,13 +255,6 @@ namespace chompi
                 normal_page_.ResetSmtLeds();
             }
 
-            if(rainbow_page_.IsClosable() && rainbow_page_.IsActive())
-            {
-                ui.ClosePage(rainbow_page_);
-                normal_page_.ResetSmtLeds();
-            }
-
-
             for (int i = 0; i < static_cast<int>(Hardware::SwId::SR_LAST); i++)
             {
                 if (i == ENC_5_SW)
@@ -312,8 +281,6 @@ namespace chompi
                     if (i == static_cast<int>(Hardware::SwId::KEY_26)
                         && toggle_state
                         && normal_page_.IsActive()
-                        && !boot_page_.IsActive()
-                        && !rainbow_page_.IsActive()
                         && !test_page_.IsActive())
                     {
                         // normal_page_.CacheLeds();
@@ -354,40 +321,46 @@ namespace chompi
                                 enc_defaults[1][1], enc_defaults[1][2], 1.f,
                                 1.f, enc_defaults[1][0], .5f};
 
-        void InitFromPresets()
+        // Main reads presets.json with the card and applies it with the options from the UI's tick, so a recall
+        // never reads a preset half written. A write under way is dropped; the card's copy wins.
+        void ReadCard()
         {
-            presets_manager->Init(defaults, enc_defaults[0][5]);
-
+            DropPresetsWrite();
             strcpy(fname, "presets.json");
-
-            FRESULT fres;
-            fres = f_open(&fptr_pre, fname, (FA_OPEN_ALWAYS | FA_WRITE | FA_READ));
-
-            if(fres == FR_OK)
+            presets_read_ = false;
+            if(f_open(&fptr_pre, fname, FA_READ) == FR_OK)
             {
-                UINT br;
-                fres = f_read(&fptr_pre, presets_file, kPreFileSize, &br);
-                if(fres == FR_OK)
-                {
-                    presets_manager->Parse(presets_file, kPreFileSize);
-                    fres = f_lseek(&fptr_pre, 0);
-                    fres = f_write(&fptr_pre, presets_file, strlen(presets_file), nullptr);
-                    fres = f_truncate(&fptr_pre);
-                    fres = f_sync(&fptr_pre);
-                }
+                UINT br = 0;
+                presets_read_ = f_read(&fptr_pre, presets_file, kPreFileSize - 1, &br) == FR_OK;
+                presets_file[br] = '\0';
+                f_close(&fptr_pre);
             }
-            // else?
-
-
+            card_pending_ = true;
+        }
+        void ApplyCard()
+        {
+            if(!card_pending_)
+                return;
+            card_pending_ = false;
+            midi_in_ch = options_->midi_ch_in;
+            normal_page_.SetOptions(options_->midi_ch_out, options_->pitch_shift_quantization, options_->delay_split);
+            menu_page_.SetOptions(options_->pitch_shift_quantization, options_->delay_split);
+            if(presets_read_)
+                presets_manager->Parse(presets_file, kPreFileSize);
+            normal_page_.ApplyPresets();
         }
 
         void DoEvents()
         {
+            ApplyCard();
+            if(no_sd_page_.IsActive() && System::GetNow() - card_gone_at_ >= kCardBlink)
+                ui.ClosePage(no_sd_page_);
             if(fx_->IsFxResetDue())
             {
                 menu_page_.ResetFx();
                 fx_->FxResetDone();
             }
+            rainbow_.Step(System::GetNow(), true);
             ui.Process();
         }
 
@@ -407,6 +380,13 @@ namespace chompi
         }
 
 
+        // the card goes: a write under way is dropped, the next change writes anew
+        void DropPresetsWrite()
+        {
+            if(write_stage >= 2)
+                f_close(&fptr_pre);
+            write_stage = 0;
+        }
         void WritePresets() __attribute__((optimize("-O0")))
         {
             if(write_stage == 0)
@@ -431,7 +411,11 @@ namespace chompi
                 if(f_tell(&fptr_pre) + write_size >= file_len)
                     write_size = file_len - f_tell(&fptr_pre);
 
-                f_write(&fptr_pre, &presets_file[f_tell(&fptr_pre)], write_size, nullptr);
+                if(f_write(&fptr_pre, &presets_file[f_tell(&fptr_pre)], write_size, nullptr) != FR_OK)
+                {
+                    DropPresetsWrite();
+                    return;
+                }
                 f_sync(&fptr_pre);
 
                 if(f_tell(&fptr_pre) >= file_len)
@@ -460,19 +444,22 @@ namespace chompi
     inline void TestPowerCable(bool cable) { test_page_.SetPowerCable(cable); }
     inline void TestBMC(bool good) { test_page_.SetBMCGood(good); }
 
-    // public so we can check IsActive from main
-    BootPage boot_page_;
-    NormalPage normal_page_;
-    MenuPage menu_page_;
-    TestPage test_page_;
-    NoSDPage no_sd_page_;
-    RainbowPage rainbow_page_;
     private:
+        NormalPage normal_page_;
+        MenuPage menu_page_;
+        TestPage test_page_;
+        NoSDPage no_sd_page_;
+        Rainbow rainbow_;
+        bool presets_read_ = false;
+        bool card_pending_ = false;
+        static constexpr uint32_t kCardBlink = 1000; // ms
+        uint32_t card_gone_at_ = 0;
         daisy::UiEventQueue event_queue;
         daisy::UI ui;
         Hardware *hw_;
         Engine *fx_;
         PresetManager* presets_manager;
+        const OptionsManager *options_;
 
         bool toggle_state;
 

@@ -1,9 +1,11 @@
 #include "hardware.h"
-#include "temp_led_stuff.h"
+#include "Leds.h"
 #include "ui.h"
 #include "daisysp.h"
 #include "fatfs.h"
 #include "diskio.h"
+#include "ff_gen_drv.h"
+extern "C" Disk_drvTypeDef disk; // FatFS's driver table, defined in ff_gen_drv.c
 #include "DSPEngine.h"
 #include "FileCopier.h"
 #include "Streamer.h"
@@ -79,8 +81,8 @@ daisysp::Oscillator osc;
 // CpuLoadMeter meter;
 uint32_t pret, sd_checkt;
 // bool log_batt;
-bool booting = true;
-bool rainbow_done = false;
+bool sound_up = false;  // the engine plays: the keys are live, on the SD timer's ticks until init_done
+bool init_done = false; // main runs the UI and the SD timer the card
 
 FileCopier copier;
 
@@ -106,17 +108,10 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
 {
     // meter.OnBlockStart();
 
-    if(booting && !ui.InTestMode())
+    if(!sound_up)
     {
-        hw.ProcessAllControls();
-        ui.GenerateEvents();
-        ui.DoEvents();
-
         for(size_t i = 0; i < size; i++)
-        {
             out[0][i] = out[1][i] = out[2][i] = out[3][i] = 0.f;
-        }
-
         return;
     }
 
@@ -166,39 +161,24 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
     // meter.OnBlockEnd();
 }
 
-void ZeroSDRAM()
+// the card goes: nothing touches it until it is mounted again
+void DropCard()
 {
-    uint32_t *beg, *end;
-    size_t    size_in_words = (1024 * 1024 * 64) / sizeof(uint32_t);
-    beg                     = (uint32_t*)0xc0000000;
-    end                     = (uint32_t*)(beg + size_in_words);
-    std::fill(beg, end, 0);
+    copier.Detach();
+    ui.DropPresetsWrite();
+    f_mount(nullptr, fsi.GetSDPath(), 0);
 }
 
-bool no_sd_card = false;
-void CheckSDCardMounted()
+// the card pulled while running: the RAM sample and the loop play on, nothing loads or saves meanwhile.
+// The SD timer sees it go and answer again; main takes it back and reads it like at boot
+volatile bool card_gone = false, card_answers = false;
+void CardLost()
 {
-    DSTATUS res = disk_status(0);
-
-    // lost the SD card, must reboot
-    if(res != RES_OK)
-    {
-        no_sd_card = true;
-        ui.NoSDCard();
-        
-        engine.SetVoiceMode(VoiceMode::JAMMI);
-        engine.SetVoiceSlot(15, true);
-
-        const uint32_t start_time = System::GetNow();
-        while(System::GetNow() - start_time < 3000)
-        {
-            ui.NoSDCardAnimation(true);
-            ui.DoEvents();
-            System::Delay(1);
-        }
-
-        ui.NoSDCardAnimation(false);
-    }
+    card_gone = true;
+    card_answers = false;
+    engine.StopStreams();
+    slot_loader.Detach();
+    DropCard();
 }
 
 // libDaisy's SD interrupt, wrapped by the linker (Makefile): a transfer of the SD DMA that ends runs the SD timer at once
@@ -211,11 +191,42 @@ extern "C" void __wrap_HAL_SD_IRQHandler(SD_HandleTypeDef *hsd)
 }
 
 // our own folder on a multi-firmware card, else the one shared with TAPE, else the root
-void MountCard()
+bool MountCard()
 {
-    f_mount(&fsi.GetSDFileSystem(), fsi.GetSDPath(), 1);
+    if(f_mount(&fsi.GetSDFileSystem(), fsi.GetSDPath(), 1) != FR_OK)
+        return false;
     if(f_chdir("/MIXTAPE") != FR_OK)
         f_chdir("/TAPE");
+    return true;
+}
+// Reads the card: the engine takes its options now, the UI takes the options and the presets on its tick.
+void ReadCard()
+{
+    options.Init();
+    engine.SetTapeSlew(options.tape_slew_on);
+    engine.SetMonitorMode(MonitorMode(options.monitor_position));
+    ui.ReadCard();
+    engine.UpdateFileExists();
+    copier.StartScan();
+}
+// Mounts and reads the card anew from main while the SD timer leaves it alone; the UI takes it at once.
+bool TakeCard()
+{
+    if(!MountCard())
+        return false;
+    streamer.Forget();
+    ReadCard();
+    ui.ApplyCard();
+    return true;
+}
+void CardBack()
+{
+    if(TakeCard())
+    {
+        engine.ReopenStreams();
+        card_gone = false;
+    }
+    card_answers = false;
 }
 
 // the card as a USB drive: CHOMPI lets go of it while the host has it, and takes it back as it finds it.
@@ -230,7 +241,7 @@ void CardMode(bool on)
             System::Delay(1);
         engine.StopAllVoices();
         slot_loader.Release();
-        f_mount(nullptr, fsi.GetSDPath(), 0);
+        DropCard();
         usb::CardMode(true);
     }
     else
@@ -238,18 +249,22 @@ void CardMode(bool on)
         usb::CardMode(false);
         while(sd_dma.Active())
             System::Delay(1);
-        MountCard();
-        streamer.Forget();
-        ui.InitFromPresets();
-        engine.UpdateFileExists();
+        const bool back = TakeCard();
+        card_gone = !back;
         card_lent = false;
-        engine.SetVoiceSlot(engine.GetVoiceSlot(), true);
+        if(back) // the host may have changed the slot's file
+            engine.SetVoiceSlot(engine.GetVoiceSlot(), true);
     }
     ui.CardMode(on);
 }
 
 void SDCallback(void* data)
 {
+    if(!init_done) // the card is main's
+    {
+        ui.BootTick(System::GetNow(), sound_up);
+        return;
+    }
     if(sd_dma.Busy()) // a transfer owns the card
         return;
     if(card_lent)
@@ -259,19 +274,29 @@ void SDCallback(void* data)
     }
 
     const uint32_t now = System::GetNow();
-    if (now - sd_checkt > 1000 && !no_sd_card && !booting)
+    if(card_gone) // until main has it back: a card put in answers once it is initialised anew
+    {
+        if(!card_answers && now - sd_checkt > 1000)
+        {
+            sd_checkt = now;
+            HAL_SD_DeInit(&hsd1);
+            disk.is_initialized[0] = 0; // FatFS calls the driver's init only once a run otherwise
+            card_answers = disk_initialize(0) == 0;
+        }
+        return;
+    }
+    if(now - sd_checkt > 1000)
     {
         sd_checkt = now;
-        CheckSDCardMounted();
+        if(disk_status(0) != 0)
+        {
+            CardLost();
+            return;
+        }
     }
-    else if(no_sd_card)
-        return;
 
-    if(copier.CopyProcess())
-    {
-        ui.DoEvents();
+    if(copier.CopyProcess()) // a copy, or the scan reading a header: the card's
         return;
-    }
 
     engine.ProcessFileRequests();
 
@@ -296,66 +321,52 @@ bool prev_int_state = true;
 bool usb_handoff = false;
 #endif
 
-uint8_t preset = 0;
-uint8_t bank = 0; 
-uint8_t mode = 0;
+// the keys held from the start: CHOMPI, PLAY and LOOP for shipping mode, the volume click for test mode;
+// the device runs meanwhile
+static constexpr uint32_t kBootHold = 400; // ms
+uint32_t boot_at = 0;
+bool sleep_held = true, vol_held = true, boot_hold_done = false;
 
+void BootHoldStep(uint32_t now)
+{
+    if(boot_hold_done)
+        return;
+    sleep_held = sleep_held && hw.button_sr.State(int(Hardware::SwId::KEY_26)) && hw.button_sr.State(int(Hardware::SwId::KEY_27))
+                 && hw.button_sr.State(int(Hardware::SwId::KEY_28));
+    vol_held = vol_held && hw.button_sr.State(int(Hardware::SwId::ENC_6_SW));
+    if(!sleep_held && !vol_held)
+        boot_hold_done = true;
+    else if(now - boot_at >= kBootHold)
+    {
+        boot_hold_done = true;
+        if(sleep_held)
+            hw.MpWrite(0x08, 0B10111111); // SHIPPING MODE
+        else
+            ui.TestMode();
+    }
+}
 
 void MainLoop(void* data)
 {
-    if(booting)
-    {
-        hw.LowBatteryLockoutCheck();
-
-        if(!copier.IsCopying())
-        {
-            if(copier.NeedsOverwrite(preset, VoiceMode(mode), bank))
-            {
-                FileCopier::CopyRequest req(preset + 1, bank, VoiceMode(mode),
-                    preset + 1,bank, VoiceMode(mode), false,
-                    FileCopier::CopyRequest::RamDir::NONE,
-                    FileCopier::CopyRequest::RamDir::NONE);
-
-                copier.req_fifo.PushBack(req);
-
-                System::Delay(5); // fixes data race
-            }
-
-            preset++;
-            if(preset >= 14)
-            {
-                preset = 0;
-                bank++;
-
-                if(bank >= 5)
-                {
-                    bank = 0;
-                    mode++;
-
-                    if(mode >= 2)
-                        booting = false;
-                }
-            }
-        }
-
-        return;
-    }
-    else if(!rainbow_done)
-    {
-        ui.StopBootAnimation();
-        ui.RainbowWave();
-        rainbow_done = true;
-    }
 
     // volatile float avg_load = meter.GetAvgCpuLoad();
     // volatile float max_load = meter.GetMaxCpuLoad();
     now = daisy::System::GetNow();
+    BootHoldStep(now);
 
     if (now - uit > 1)
     {
         ui.DoEvents();
         ui.ProcessMidi();
         uit = now;
+        static bool gone = false;
+        if(card_answers)
+            CardBack();
+        if(card_gone != gone)
+        {
+            gone = card_gone;
+            ui.CardGone(gone);
+        }
 
         if(ui.TakeCardModeRequest() && (usb::InCardMode() || (usb::Connected() && !engine.Recording() && !copier.IsCopying())))
             CardMode(!usb::InCardMode());
@@ -456,104 +467,72 @@ int main(void)
     slot_loader.Init(&slot_file, slot_bounce, chompi_mem, kMaxRamBuffSize, &chompi_buff);
     streamer.Init(voice_streams, kStreams, stream_files, stream_head, stream_rings, stream_cache, kStreamBlocks);
     hw.Init();
+    for(size_t i = 0; i < hw.KeyLag(); i++) // the keys read pressed and the encoders 0xff until scanned through the debounce: before anyone looks
+    {
+        hw.ProcessAllControls();
+        System::Delay(1);
+    }
+    // the SDRAM is up: the file objects in it start closed, nothing else in it is read before it is written
+    slot_file = copy_files[0] = copy_files[1] = SdFile();
+    for(SdFile &f : stream_files)
+        f = SdFile();
+    leds.Init();
+    hw.StartLowPriorityCallback(SDCallback, 1000); // draws the rainbow through init, then it is the card's timer
     // System::Delay(100);
 
     hw.MpWrite(0x0c, 0B01010001); // set BATT_LOW to 3V, turn on 
 
-    hw.MpReadAll();
-
-    for(size_t i = 0; i < 10; i++)
+    for(size_t i = 0; i < 10; i++) // each read lands before the next
     {
         hw.LowBatteryLockoutCheck();
-        System::Delay(10);
+        for(int w = 0; w < 5 && !hw.read_ready; w++)
+            System::Delay(1);
     }
-
-    /** SDMMC Init */
-    SdmmcHandler::Config sd_cfg;
-    sd_cfg.speed = SdmmcHandler::Speed::FAST;
-    sd_cfg.width = SdmmcHandler::BusWidth::BITS_4;
-    // sd_cfg.clock_powersave = true;
-    sdmmc.Init(sd_cfg);
-    fsi.Init(FatFSInterface::Config::MEDIA_SD);
-    MountCard();
-
-    // delete the battery log if it exists
-    char filename[32];
-    sprintf(filename, ".batt_log.txt");
-    f_unlink(filename);
-
-    // macos makes a copy
-    sprintf(filename, "._.batt_log.txt");
-    f_unlink(filename);
-
-
-    options.Init();
-
-    LedSetup();
-    ui.Init(&hw, &engine, &copier, &presets,
-        options.midi_ch_in, options.midi_ch_out, options.pitch_shift_quantization, options.delay_split);
-
-    hw.StartLowPriorityCallback(SDCallback, 1000);
-    hw.StartAudio(AudioCallback);
-
-    ZeroSDRAM();
-
-    // meter.Init(hw.seed.AudioSampleRate(), hw.seed.AudioBlockSize());
 
     loop_buff.Init(&loop_mem[0], &loop_undo);
     chompi_buff.Init(&chompi_mem[0]);
     grains.Init(grain_mem);
-    engine.Init(hw.seed.AudioSampleRate(), &reverb, &del_mem[0], 
-                &loop_buff, &chompi_buff, 
-                options.tape_slew_on,
-                MonitorMode(options.monitor_position));
-
+    engine.Init(hw.seed.AudioSampleRate(), &reverb, &del_mem[0], &loop_buff, &chompi_buff);
     osc.Init(hw.seed.AudioSampleRate());
     osc.SetAmp(.2f);
+    copier.Init(hw.seed.AudioSampleRate(), &engine, &chompi_buff, &loop_buff,
+                {&copy_files[0], &copy_files[1], copy_in, copy_out});
+    engine.FillDefaultSample(hw.seed.AudioSampleRate());
+    ui.Init(&hw, &engine, &copier, &presets, &options);
+    hw.StartAudio(AudioCallback);
+    sound_up = true;
+
+    hw.usb_sw.Write(false);     // give USB control
+    daisy::System::Delay(1);
+    hw.MpWrite(0x0a, 0B00100100); // Auto DPDM
+    daisy::System::Delay(1);
+    hw.usb_sw.Write(true);     // take USB control
+
+    // The card comes up with the device already playing; main's first tick applies what it holds.
+    SdmmcHandler::Config sd_cfg;
+    sd_cfg.speed = SdmmcHandler::Speed::FAST;
+    sd_cfg.width = SdmmcHandler::BusWidth::BITS_4;
+    sdmmc.Init(sd_cfg);
+    fsi.Init(FatFSInterface::Config::MEDIA_SD);
+    if(MountCard())
+    {
+        f_unlink(".batt_log.txt");
+        f_unlink("._.batt_log.txt"); // macos makes a copy
+        ReadCard();
+    }
+    else
+        card_gone = true; // the built-in sample, until a card is in
 
     now = daisy::System::GetNow();
     uit = now;
     pret = now;
     pre_startt = now;
-
+    boot_at = now;
     #if !NO_BATT
     usbt = now;
     batt = now;
     #endif
-
-    // get any junk out of the SRs, .5s while the buttons for shipping or test mode are held
-    uint32_t vol_state = 0;
-    uint32_t sleep_state = 0;
-
-    for(int i = 0; i < 5000; i++)
-    {
-        hw.ProcessAllControls();
-        vol_state += hw.button_sr.State(int(Hardware::SwId::ENC_6_SW));
-        sleep_state += hw.button_sr.State(int(Hardware::SwId::KEY_26))
-                        && hw.button_sr.State(int(Hardware::SwId::KEY_27))
-                        && hw.button_sr.State(int(Hardware::SwId::KEY_28));
-
-        System::DelayUs(100);
-        const uint32_t left = 5000 - 1 - i;
-        if(vol_state + left <= 4000 && sleep_state + left <= 4000) // neither can be held long enough any more
-            break;
-    }
-
-    if(sleep_state > 4000)
-        hw.MpWrite(0x08, 0B10111111); // SHIPPING MODE
-    else if(vol_state > 4000)
-        ui.TestMode();
-
-    hw.usb_sw.Write(false);     // give USB control
-    daisy::System::Delay(1); // Wait a sec
-    hw.MpWrite(0x0a, 0B00100100); // Auto DPDM
-    daisy::System::Delay(1); // Wait a sec
-    hw.usb_sw.Write(true);     // take USB control
-    
-    copier.Init(hw.seed.AudioSampleRate(), &engine, &chompi_buff, &loop_buff,
-                {&copy_files[0], &copy_files[1], copy_in, copy_out});
-    engine.FillDefaultSample(hw.seed.AudioSampleRate());
-    engine.UpdateFileExists();
+    init_done = true;
 
     while (1)
     {

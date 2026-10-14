@@ -25,13 +25,9 @@ class OptionsManager
         buffer[len + app_len] = '\0';
     }
 
-    /** Init with defaults,
-        open the file and parse, if valid overriding defaults,
-        write a new file no matter what
-    */
+    // the defaults, then options.json over them; the file is rewritten only when it doesn't hold the result
     void Init()
     {
-        // fill in defaults
         record_latch = false;
         midi_ch_in = 0;
         midi_ch_out = 0;
@@ -40,88 +36,82 @@ class OptionsManager
         pitch_shift_quantization = true;
         delay_split = false;
 
-        /** TODO: make sure the open settings are correct */
-        const char fname[32] = "options.json";
-
-        FRESULT res = f_stat(fname, nullptr);
-
-        // create if not exist, don't overwrite
-        f_open(&fptr_opt, fname, (FA_OPEN_ALWAYS | FA_WRITE | FA_READ));
-
-        UINT br;
-        f_read(&fptr_opt, &opt_file[0], kOptFileSize, &br);
-
-        if(res == FR_OK)
-            Parse();
-
-        WriteFile();
+        if(f_open(&fptr_opt, "options.json", FA_OPEN_ALWAYS | FA_WRITE | FA_READ) != FR_OK)
+            return;
+        UINT br = 0;
+        if(f_read(&fptr_opt, opt_file, kOptFileSize - 1, &br) != FR_OK)
+            br = 0;
+        opt_file[br] = '\0';
+        Parse();
+        Build(built_);
+        if(strcmp(built_, opt_file))
+            WriteFile(built_);
+        f_close(&fptr_opt);
     }
 
-    /** Write a JSON file with whatever settings we have store locally
-        These might be defaults, or whatever we parsed from the file most recently
-    */
-    void WriteFile()
+    // the options as the file holds them
+    void Build(char *to)
     {
         // header
-        std::fill_n(opt_file, kOptFileSize, '\0');
-        strcpy(opt_file, "{\n\t\"chompi\": [\n\t\t{\n\t\t\t\"name\": \"Record Latch\",\n\t\t\t\"value\": ");
+        strcpy(to, "{\n\t\"chompi\": [\n\t\t{\n\t\t\t\"name\": \"Record Latch\",\n\t\t\t\"value\": ");
 
         // rec latch
         char append[72];
         sprintf(append, "%s", record_latch ? "true" : "false");
-        StrAppend(opt_file, append);
+        StrAppend(to, append);
 
         // midi in channel
         sprintf(append, "\n\t\t},\n\t\t{\n\t\t\t\"name\": \"Midi In Channel\",\n\t\t\t\"value\": ");
-        StrAppend(opt_file, append);
+        StrAppend(to, append);
 
         sprintf(append, "%d", midi_ch_in + 1);
-        StrAppend(opt_file, append);
+        StrAppend(to, append);
 
         // midi out channels
         sprintf(append, "\n\t\t},\n\t\t{\n\t\t\t\"name\": \"Midi Out Channel\",\n\t\t\t\"value\": ");
-        StrAppend(opt_file, append);
+        StrAppend(to, append);
 
         sprintf(append, "%d", int(midi_ch_out + 1));
-        StrAppend(opt_file, append);
+        StrAppend(to, append);
 
         // Tape Slew On
         sprintf(append, "\n\t\t},\n\t\t{\n\t\t\t\"name\": \"Tape Slew On\",\n\t\t\t\"value\": ");
-        StrAppend(opt_file, append);
+        StrAppend(to, append);
 
         sprintf(append, "%s", tape_slew_on ? "true" : "false");
-        StrAppend(opt_file, append);
+        StrAppend(to, append);
 
         // Monitor Position
         sprintf(append, "\n\t\t},\n\t\t{\n\t\t\t\"name\": \"Monitor Position\",\n\t\t\t\"value\": ");
-        StrAppend(opt_file, append);
+        StrAppend(to, append);
 
         sprintf(append, "%d", int(monitor_position + 1));
-        StrAppend(opt_file, append);
+        StrAppend(to, append);
 
         // Pitch Shift Quantization. true == quant in shift menu (default), false == quant in normal menu
         sprintf(append, "\n\t\t},\n\t\t{\n\t\t\t\"name\": \"Pitch Quantize In Shift Menu\",\n\t\t\t\"value\": ");
-        StrAppend(opt_file, append);
+        StrAppend(to, append);
 
         sprintf(append, "%s", pitch_shift_quantization ? "true" : "false");
-        StrAppend(opt_file, append);
+        StrAppend(to, append);
 
         // Delay Split
         sprintf(append, "\n\t\t},\n\t\t{\n\t\t\t\"name\": \"Split Delay\",\n\t\t\t\"value\": ");
-        StrAppend(opt_file, append);
+        StrAppend(to, append);
 
         sprintf(append, "%s", delay_split ? "true" : "false");
-        StrAppend(opt_file, append);
+        StrAppend(to, append);
 
         // footer
         sprintf(append, "\n\t\t}\n\t]\n}");
-        StrAppend(opt_file, append);
+        StrAppend(to, append);
+    }
 
-        // write the file
+    void WriteFile(const char *text)
+    {
         UINT bw = 0;
-
         f_lseek(&fptr_opt, 0);
-        f_write(&fptr_opt, opt_file, strlen(opt_file), &bw);
+        f_write(&fptr_opt, text, strlen(text), &bw);
         f_truncate(&fptr_opt);
         f_sync(&fptr_opt);
     }
@@ -234,9 +224,10 @@ class OptionsManager
     private:
         FIL fptr_opt;
 
-        static const size_t kOptFileSize = 4096;
-        static const size_t kNumOptions = 7;
-        char opt_file[kOptFileSize];
+        static constexpr size_t kOptFileSize = 4096;
+        static constexpr size_t kNumOptions = 7;
+        char opt_file[kOptFileSize]; // as read
+        char built_[kOptFileSize];   // as it should be
 };
 } // namespace chompi
 #pragma GCC pop_options
