@@ -5,7 +5,7 @@ set -e
 cd "$(dirname "$0")"
 json=../../libs/coreJSON/source
 mkdir -p build/inc
-for h in PresetManager.h; do ln -sf ../../../$h build/inc/$h; done
+for h in PresetManager.h Banks.h Colors.h; do ln -sf ../../../$h build/inc/$h; done
 ln -sf ../../stubs/FileStreamingManager.h build/inc/FileStreamingManager.h
 clang -std=c11 -O1 -I$json/include -c $json/core_json.c -o build/core_json.o
 clang++ -std=c++17 -O1 -Wall -Wno-unknown-pragmas -Ibuild/inc -I$json/include preset_test.cpp build/core_json.o \

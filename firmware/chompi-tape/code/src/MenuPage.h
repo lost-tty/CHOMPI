@@ -37,7 +37,7 @@ namespace chompi
             enc_defaults = def_arr;
             knob_page = page;
 
-            key_color = &purple[0];
+            key_color = kBanks[0].color;
 
             last_blink = System::GetNow();
 
@@ -415,23 +415,7 @@ namespace chompi
             // banks
             int mode = int(fx_->GetVoiceMode());
             leds.ui.Smt(mode == 0 ? 1 : 0, 0.f, 0.f, 0.f);
-            switch(fx_->GetBank())
-            {
-                case 0:
-                    key_color = &purple[0];
-                    break;
-                case 1:
-                    key_color = &orange[0];
-                    break;
-                case 2:
-                    key_color = &teal[0];
-                    break;
-                case 3:
-                    key_color = &dark_orange[0];
-                    break;
-              default:
-                    key_color = &yellow_green[0];
-            }                
+            key_color = kBanks[std::min(size_t(fx_->GetBank()), kNumBanks - 1)].color;
 
             if(!card_gone_)
                 leds.ui.Smt(mode, key_color[0], key_color[1], key_color[2]);

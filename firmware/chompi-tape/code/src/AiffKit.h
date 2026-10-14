@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "core_json.h"
+#include "Banks.h"
 
 namespace chompi
 {
@@ -103,7 +104,7 @@ namespace chompi
     }
 
     extern AiffInfo slot_info;    // the loaded JAMMI slot: its format, a kit's slices; its voices share it
-    extern uint16_t kit_slots[5]; // per bank, the JAMMI slots that play an .aif instead of a .wav, bit = slot
+    extern uint16_t kit_slots[kNumBanks]; // per bank, the JAMMI slots that play an .aif instead of a .wav, bit = slot
 
     // Reads the chunks of an AIFF or AIFF-C through read(pos, dst, n). json is scratch for the op-1 data.
     // False if it isn't 16-bit PCM audio this can play.

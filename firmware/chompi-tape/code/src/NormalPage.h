@@ -4,6 +4,7 @@
 #include "DSPEngine.h"
 #include "KnobPreset.h"
 #include "Leds.h"
+#include "Colors.h"
 #include "FileCopier.h"
 #include "Clock.h"
 #include "Hold.h"
@@ -111,20 +112,6 @@ namespace chompi
     static const float kMagicTop = 2.f; // past 1 the magic knob goes into grains
     static const float kRecDim = .7f;
 
-
-    static const float white[3] = {1.f, 1.f, 1.f};
-    static const float red[3] = {1.f, 0.f, 0.f};
-    static const float orange[3] = {1.f, .6f, .24f};
-    static const float yellow[3] = {1.f, .95f, 0.05f};
-    static const float green[3] = {0.f, 1.f, 0.f};
-    static const float teal[3] = {.14f, 1.f, .92f};
-    static const float med_blue[3] = {0.f, .84f, 1.f};
-    static const float blue[3] = {0.f, 0.f, 1.f};
-    static const float purple[3] = {.58f, .05f, 1.f};
-    static const float pink[3] = {1.f, .36f, .62f};
-    static const float magenta[3] = {1.f, 0.f, 1.f};
-    static const float dark_orange[3] = {.77f, .38f, .06f};
-    static const float yellow_green[3] = {.706f, 1.f, 0.f};
 
     // a speed, 0..1 with 1x in the middle: 0 at either end, 1 at 1x
     inline float speed_mid(float speed) { return speed < .5f ? speed * 2.f : (1.f - speed) * 2.f; }
@@ -326,19 +313,8 @@ namespace chompi
                 }
                 size_t slot = KeyToSlot(i);
                 const float* color = &pink[0];
-                if(fx_->GetVoiceSlot() != 15 || fx_->GetVoiceMode() == VoiceMode::CUBBI)
-                {
-                    if(fx_->GetVoiceBank() == 0) // this shouldn't change if we're not actually on that bank
-                        color = &purple[0];
-                    else if(fx_->GetVoiceBank() == 1)
-                        color = &orange[0];
-                    else if(fx_->GetVoiceBank() == 2)
-                        color = &teal[0];
-                    else if(fx_->GetVoiceBank() == 3)
-                        color = &dark_orange[0];
-                    else if(fx_->GetVoiceBank() == 4)
-                        color = &yellow_green[0];
-                }
+                if((fx_->GetVoiceSlot() != 15 || fx_->GetVoiceMode() == VoiceMode::CUBBI) && fx_->GetVoiceBank() < kNumBanks)
+                    color = kBanks[fx_->GetVoiceBank()].color; // this shouldn't change if we're not actually on that bank
 
                 const bool kit_leds = fx_->AiffSelected() && (switch_state || fx_->GetInputSource() != InputSource::MIC)
                                       && (fx_->KitSelected() || slot_loader.Busy() || slot_loader.Failed());

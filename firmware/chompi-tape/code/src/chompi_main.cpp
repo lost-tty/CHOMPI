@@ -34,7 +34,7 @@ LoopSync DSY_DTCMRAM_BSS daisy::loop_sync;
 Arp DSY_DTCMRAM_BSS chompi::arp;
 ArpKnob DSY_DTCMRAM_BSS chompi::arp_knob;
 AiffInfo DSY_DTCMRAM_BSS chompi::slot_info;
-uint16_t DSY_DTCMRAM_BSS chompi::kit_slots[5];
+uint16_t DSY_DTCMRAM_BSS chompi::kit_slots[chompi::kNumBanks];
 RamBufferMemory DSY_DTCMRAM_BSS chompi::slot_buff;
 SlotLoader DSY_DTCMRAM_BSS chompi::slot_loader;
 SdDma DSY_DTCMRAM_BSS chompi::sd_dma;

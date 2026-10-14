@@ -7,6 +7,7 @@
 #include <stdint.h>
 #include "FileStreamingManager.h"
 #include "core_json.h"
+#include "Banks.h"
 
 #define PRE_VERSION "2"
 
@@ -55,7 +56,7 @@ class PresetManager
 
     static constexpr size_t kFileSize = 24576; // bytes
     static constexpr int kMaxModes = 2; // jammi, cubbi
-    static constexpr int kMaxBanks = 5; // a, b, c, d, e
+    static constexpr int kMaxBanks = kNumBanks;
     static constexpr int kMaxSlots = 14; // 1, 2, 3, etc.
     static constexpr int kMaxControls = 11;
     // The first nine are the slot's array in the file, as the TAPE firmware reads it.
@@ -176,7 +177,7 @@ class PresetManager
                     if(!values_valid[mode][bank][slot] || (v[kLegato] < .5f && v[kGlide] <= 0.f))
                         continue;
                     sprintf(append, "%s\"%s-%c-%d\":{\"legato\":%d,\"glide\":%.3f}", first ? "" : ",", ModeName(mode),
-                            'a' + bank, slot + 1, v[kLegato] > .5f, double(v[kGlide]));
+                            kBanks[bank].letter, slot + 1, v[kLegato] > .5f, double(v[kGlide]));
                     StrAppend(buffer, append);
                     first = false;
                 }
@@ -412,12 +413,12 @@ class PresetManager
         for(mode = 0; mode < kMaxModes; mode++)
             if(memcmp(item.key, ModeName(mode), 5) == 0)
                 break;
-        bank = item.key[6] - 'a';
+        bank = BankOfLetter(item.key[6]);
         slot = atoi(item.key + 8) - 1;
-        if(mode >= kMaxModes || bank < 0 || bank >= kMaxBanks || slot < 0 || slot >= kMaxSlots)
+        if(mode >= kMaxModes || bank >= kMaxBanks || slot < 0 || slot >= kMaxSlots)
             return false;
         char name[12];
-        snprintf(name, sizeof(name), "%s-%c-%d", ModeName(mode), 'a' + bank, slot + 1);
+        snprintf(name, sizeof(name), "%s-%c-%d", ModeName(mode), kBanks[bank].letter, slot + 1);
         return strlen(name) == item.keyLength && memcmp(name, item.key, item.keyLength) == 0;
     }
 

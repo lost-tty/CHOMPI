@@ -14,6 +14,7 @@
 #include "DJFilter.h"
 #include "Warble.h"
 #include "PresetManager.h"
+#include "Banks.h"
 #include "EnvFollower.h"
 #include "MicFilter.h"
 #include "reverb.h"
@@ -247,7 +248,7 @@ namespace daisy
             was_first_ = was_dub_ = false;
 
             for(size_t m = 0; m < 2; m++) // slot 15 is the recording, card or not
-                for(size_t b = 0; b < 5; b++)
+                for(size_t b = 0; b < chompi::kNumBanks; b++)
                     file_exists[m][b][14] = true;
             SetVoiceMode(VoiceMode::JAMMI);
             SetBank(0);
@@ -1921,7 +1922,7 @@ namespace daisy
         }
         inline void IncrementBank() 
         {
-            bank[int(voice_mode)] = (bank[int(voice_mode)] + 1) % 5;
+            bank[int(voice_mode)] = (bank[int(voice_mode)] + 1) % chompi::kNumBanks;
 
             if(voice_mode == VoiceMode::CUBBI)
                 ResetVoiceKeys();
@@ -1929,7 +1930,7 @@ namespace daisy
         inline void SetBank(size_t b)
         {
             SourceChanged();
-            bank[int(voice_mode)] = b % 5;
+            bank[int(voice_mode)] = b % chompi::kNumBanks;
 
             if(voice_mode == VoiceMode::CUBBI)
                 ResetVoiceKeys();
@@ -1947,24 +1948,7 @@ namespace daisy
          */
         static void GetFileNameForSlot(int slot, int b, VoiceMode m, char *name)
         {
-            char bankchar;
-            switch(b)
-            {
-                case 0:
-                    bankchar = 'a';
-                    break;
-                case 1:
-                    bankchar = 'b';
-                    break;
-                case 2:
-                    bankchar = 'c';
-                    break;
-                case 3:
-                    bankchar = 'd';
-                    break;
-                default:
-                    bankchar = 'e';
-            }
+            const char bankchar = chompi::kBanks[std::min(size_t(b), chompi::kNumBanks - 1)].letter;
 
             const char *mode = m == VoiceMode::CUBBI ? "cubbi" : "jammi";
 
@@ -2018,7 +2002,7 @@ namespace daisy
         // one pass over the card's folder: which slots have a sample or a kit
         void UpdateFileExists() __attribute__((optimize("Os")))
         {
-            bool wav[2][5][14] = {}, aif[5][14] = {};
+            bool wav[2][chompi::kNumBanks][14] = {}, aif[chompi::kNumBanks][14] = {};
             DIR dir;
             FILINFO info;
             if(f_opendir(&dir, "") == FR_OK)
@@ -2032,7 +2016,7 @@ namespace daisy
             }
 
             for(size_t m = 0; m < 2; m++)
-                for(size_t b = 0; b < 5; b++)
+                for(size_t b = 0; b < chompi::kNumBanks; b++)
                     for(size_t s = 0; s < 14; s++)
                         SetSlotFiles(s, b, VoiceMode(m), wav[m][b][s], aif[b][s]);
         }
@@ -2065,7 +2049,7 @@ namespace daisy
         {
             char slot_name[32];
             for(m = 0; m < 2; m++)
-                for(b = 0; b < 5; b++)
+                for(b = 0; b < chompi::kNumBanks; b++)
                 {
                     GetFileNameForSlot(1, b, VoiceMode(m), slot_name);
                     const size_t prefix = strlen(slot_name) - strlen("1.wav");
@@ -2436,7 +2420,7 @@ namespace daisy
 
         VoiceMode voice_mode;
 
-        bool file_exists[2][5][15]; // mode, bank, slot
+        bool file_exists[2][chompi::kNumBanks][15]; // mode, bank, slot
         size_t voice_slot_;
         bool aiff_slot_ = false; // the voices were set up for an .aif, a copy may change kit_slots meanwhile
         size_t cubbi_slot_;
