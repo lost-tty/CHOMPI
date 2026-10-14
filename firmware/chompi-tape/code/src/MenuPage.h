@@ -2,6 +2,7 @@
 #pragma GCC optimize ("Os") // cold code, built for size so all of it fits in SRAM
 #include "hardware.h"
 #include "DSPEngine.h"
+#include "KnobPreset.h"
 #include "Leds.h"
 #include "FileCopier.h"
 
@@ -586,16 +587,7 @@ namespace chompi
             size_t bank = fx_->GetBank();
             size_t slot = fx_->GetVoiceSlot();
 
-            presets_->SetValue(enc_values[0][0], mode, bank, slot, 0);
-            presets_->SetValue(enc_values[0][1], mode, bank, slot, 1);
-            presets_->SetValue(enc_values[0][2], mode, bank, slot, 2);
-            presets_->SetValue(enc_values[1][1], mode, bank, slot, 3);
-            presets_->SetValue(enc_values[1][2], mode, bank, slot, 4);
-            presets_->SetValue(fx_->GetAutoLoop(), mode, bank, slot, 5);
-            presets_->SetValue(fx_->GetSustainActive(), mode, bank, slot, 6);
-
-            presets_->SetValue(enc_values[1][0], mode, bank, slot, 7);
-            presets_->SetValue(fx_->GetPan(), mode, bank, slot, 8);        
+            presets_->Store(mode, bank, slot, PresetFromKnobs(enc_values, *fx_));
         }
 
         void SetVoiceSlot(size_t slot)
@@ -605,55 +597,9 @@ namespace chompi
             size_t mode = static_cast<size_t>(fx_->GetVoiceMode());
             size_t bank = fx_->GetBank();
 
-            if(!presets_->IsValid(mode, bank, slot))
-            {
-                enc_values[0][0] = enc_defaults[0][0];
-                enc_values[0][1] = enc_defaults[0][1];
-                enc_values[0][2] = enc_defaults[0][2];
-                enc_values[1][0] = enc_defaults[1][0];
-                enc_values[1][1] = enc_defaults[1][1];
-                enc_values[1][2] = enc_defaults[1][2];
-                fx_->SetAutoLoop(true);
-                fx_->SetSustainActive(true);
-                fx_->SetPan(.5f);
-            }
-            else
-            {
-                enc_values[0][0] = presets_->GetValue(mode, bank, slot, 0);
-                enc_values[0][1] = presets_->GetValue(mode, bank, slot, 1);
-                enc_values[0][2] = presets_->GetValue(mode, bank, slot, 2);
-                enc_values[1][1] = presets_->GetValue(mode, bank, slot, 3);
-                enc_values[1][2] = presets_->GetValue(mode, bank, slot, 4);
-                fx_->SetAutoLoop(presets_->GetValue(mode, bank, slot, 5));
-                fx_->SetSustainActive(presets_->GetValue(mode, bank, slot, 6));
-
-                enc_values[1][0] = presets_->GetValue(mode, bank, slot, 7);
-                fx_->SetPan(presets_->GetValue(mode, bank, slot, 8));
-            }
-
-            // TODO: clean up pitch code repetition
-            float val = enc_values[0][0];
-            val = val < .5f ? (.5f - val) * -2.f : (val - .5f) * 2.f; // 1 - 0 - 1
-
-            float inv = val < 0.f ? -1.f : 1.f;
-            float pitch;
-            if(fabsf(val) < .33f) // .01x - .5x
-                pitch = val * 1.484848f + .01f * inv;
-            else if (fabsf(val) < .66f ) // .5x - 1x
-                pitch = (val - .33f * inv) * 1.515151 + .5f * inv;
-            else // 1x - 2x
-                pitch = (val - .66 * inv) * 2.941176 + 1.f * inv;
-
-            fx_->SetGlobalPitch(fabsf(pitch));
-            fx_->SetReverse(pitch < 0.f);
-
-            fx_->SetStartPointForce(enc_values[0][1]);
-            fx_->SetEndPointForce(enc_values[0][2]);
-
-            fx_->SetGain(enc_values[1][0]);
-            fx_->SetAttack(enc_values[1][1]);
-            fx_->SetDecay(enc_values[1][2]);
-
+            const PresetManager::Preset p = presets_->Recall(mode, bank, slot);
+            KnobsFromPreset(p, enc_values);
+            fx_->ApplyPreset(p);
             fx_->SetVoiceSlot(slot, true);
         }
 

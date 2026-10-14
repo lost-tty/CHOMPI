@@ -1,13 +1,17 @@
 #pragma GCC push_options
 #pragma GCC optimize ("Os") // cold code, built for size so all of it fits in SRAM
 #pragma once
+#include <algorithm>
+#include <cstdlib>
+#include <cstring>
+#include <stdint.h>
 #include "FileStreamingManager.h"
 #include "core_json.h"
 
 #define PRE_VERSION "2"
 
 namespace chompi {
-class PresetManager 
+class PresetManager
 {
     public:
     PresetManager() {}
@@ -33,9 +37,11 @@ class PresetManager
                         else
                             values[mode][bank][slot][control] = defaults[control];
                     }
+                    values_valid[mode][bank][slot] = false;
                 }
             }
         }
+        chompi_valid = false;
         volume = volume_default;
     }
 
@@ -51,6 +57,42 @@ class PresetManager
     static constexpr int kMaxBanks = 5; // a, b, c, d, e
     static constexpr int kMaxSlots = 14; // 1, 2, 3, etc.
     static constexpr int kMaxControls = 9; // pitch, start, end, att, decay, autoloop, sustainactive, gain, pan
+    enum Control { kPitch, kStart, kEnd, kAttack, kDecay, kAutoloop, kSustain, kGain, kPan };
+    // Holds one slot's settings.
+    struct Preset
+    {
+        float pitch, start, end, attack, decay, gain, pan;
+        bool autoloop, sustain;
+    };
+    // Returns the slot's preset, or the defaults for a slot without one.
+    Preset Recall(size_t mode, size_t bank, size_t slot)
+    {
+        const float *v = IsValid(mode, bank, slot) ? Values(mode, bank, slot) : defaults_;
+        return {v[kPitch], v[kStart], v[kEnd], v[kAttack], v[kDecay], v[kGain], v[kPan],
+                v[kAutoloop] > .5f, v[kSustain] > .5f};
+    }
+    void Store(size_t mode, size_t bank, size_t slot, const Preset &p)
+    {
+        if(slot < 1 || slot > kMaxSlots + 1 || mode >= kMaxModes || bank >= kMaxBanks)
+            return;
+        float *v = Values(mode, bank, slot);
+        v[kPitch] = p.pitch;
+        v[kStart] = p.start;
+        v[kEnd] = p.end;
+        v[kAttack] = p.attack;
+        v[kDecay] = p.decay;
+        v[kGain] = p.gain;
+        v[kPan] = p.pan;
+        v[kAutoloop] = float(p.autoloop);
+        v[kSustain] = float(p.sustain);
+        if(slot == 15)
+            chompi_valid = true;
+        else
+        {
+            values_valid[mode][bank][slot - 1] = true;
+            updated = true;
+        }
+    }
 
     enum class Result
     {
@@ -59,18 +101,6 @@ class PresetManager
         ERR_INVALID_JSON,
         ERR_GENERIC,
     };
-
-    void StrAppend(char* buffer, char* append)
-    {
-        size_t len = strlen(buffer);
-        size_t app_len = strlen(append);
-
-        for(size_t i = 0; i < app_len; i++)
-        {
-            buffer[len + i] = append[i];
-        }
-        buffer[len + app_len] = '\0';
-    }
 
     Result WriteWholeFile(char* buffer, size_t size)
     {
@@ -81,7 +111,7 @@ class PresetManager
 
         std::fill_n(buffer, size, '\0');
         strcpy(buffer, "[");
-        char append[32];
+        char append[64];
         for(int mode = 0; mode < kMaxModes; mode++)
         {
             sprintf(append,"[");
@@ -226,42 +256,7 @@ class PresetManager
     }
 
     /** Returns the string value of a given key, or NULL */
-    float GetValue(size_t mode, size_t bank, size_t slot, size_t control)
-    {
-        slot -= 1;
-        if(slot > kMaxSlots || mode >= kMaxModes || bank >= kMaxBanks || control >= kMaxControls)
-            return 0xff;
-        
-        if(!values_valid[mode][bank][slot] && slot != 14)
-            return 0xff;
-        
-        if(!chompi_valid && slot == 14)
-            return 0xff;
-
-        if(slot == 14)
-            return chompi_value[control];
-
-        return values[mode][bank][slot][control];
-    }
-
-    void SetValue(float value, size_t mode, size_t bank, size_t slot, size_t control)
-    {
-        slot -= 1;
-        if(slot > kMaxSlots || mode >= kMaxModes || bank >= kMaxBanks || control >= kMaxControls)
-            return;
-
-        if(slot == 14)
-        {
-            chompi_value[control] = value;
-            chompi_valid = true;
-        }
-        else
-        {
-            updated = true;
-            values[mode][bank][slot][control] = value;
-            values_valid[mode][bank][slot] = true;
-        }
-    }
+    float *Values(size_t mode, size_t bank, size_t slot) { return slot == 15 ? chompi_value : values[mode][bank][slot - 1]; }
 
     void Invalidate(uint8_t mode, uint8_t bank, uint8_t slot)
     {
@@ -326,6 +321,24 @@ class PresetManager
     bool chompi_valid;
 
     private:
+    // a collection's items, in order
+
+
+
+
+    void StrAppend(char* buffer, char* append)
+    {
+        size_t len = strlen(buffer);
+        size_t app_len = strlen(append);
+
+        for(size_t i = 0; i < app_len; i++)
+        {
+            buffer[len + i] = append[i];
+        }
+        buffer[len + app_len] = '\0';
+    }
+
+
         bool updated;
         const float* defaults_;
 };

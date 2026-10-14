@@ -317,9 +317,9 @@ namespace chompi
         char presets_file[kPreFileSize];
 
         // pitch, start, end, att, decay, autoloop, sustainactive, gain, pan
-        const float defaults[9] = {   enc_defaults[0][0], enc_defaults[0][1], enc_defaults[0][2],
-                                enc_defaults[1][1], enc_defaults[1][2], 1.f,
-                                1.f, enc_defaults[1][0], .5f};
+        const float defaults[PresetManager::kMaxControls] = {enc_defaults[0][0], enc_defaults[0][1], enc_defaults[0][2],
+                                                             enc_defaults[1][1], enc_defaults[1][2], 1.f, 1.f,
+                                                             enc_defaults[1][0], .5f};
 
         // Main reads presets.json with the card and applies it with the options from the UI's tick, so a recall
         // never reads a preset half written. A write under way is dropped; the card's copy wins.

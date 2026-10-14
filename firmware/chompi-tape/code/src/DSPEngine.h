@@ -1040,16 +1040,17 @@ namespace daisy
 
                 cubbi_slot_ = slot;
                 latest_voice = free_idx;
-                SetGlobalPitch(fabsf(cubbi_pitch));
-                SetReverse(cubbi_pitch < 0.f);
-                SetStartPoint(cubbi_start);
-                SetEndPoint(cubbi_end);
-                SetAttack(cubbi_attack);
-                SetDecay(cubbi_decay);
-                SetAutoLoop(cubbi_autoloop);
-                SetSustainActive(cubbi_sustain);
-                SetGain(cubbi_gain);
-                SetPan(cubbi_pan);
+                const float pitch = KnobPitch(cubbi_.pitch);
+                SetGlobalPitch(fabsf(pitch));
+                SetReverse(pitch < 0.f);
+                SetStartPoint(cubbi_.start);
+                SetEndPoint(cubbi_.end);
+                SetAttack(cubbi_.attack);
+                SetDecay(cubbi_.decay);
+                SetAutoLoop(cubbi_.autoloop);
+                SetSustainActive(cubbi_.sustain);
+                SetGain(cubbi_.gain);
+                SetPan(cubbi_.pan);
             }
 
             playing_key[free_idx] = key;
@@ -1413,25 +1414,21 @@ namespace daisy
             return enc_pos;
         }
 
-        /** unquantized pitch
-            * curved s.t.
-            *  0.f - .33f = .01x - .5x
-            *  .33f - .66f = .5x - 1x
-            *  .66f - 1.f = 1x - 2x
-        */
+        // Converts the pitch knob's value to a speed, negative for reverse: .01x to .5x, .5x to 1x and 1x to 2x in thirds.
+        static float KnobPitch(float value) __attribute__((optimize("Os")))
+        {
+            const float val = value < .5f ? (.5f - value) * -2.f : (value - .5f) * 2.f;
+            const float inv = val < 0.f ? -1.f : 1.f;
+            if(fabsf(val) < .33f)
+                return val * 1.484848f + .01f * inv;
+            if(fabsf(val) < .66f)
+                return (val - .33f * inv) * 1.515151f + .5f * inv;
+            return (val - .66f * inv) * 2.941176f + 1.f * inv;
+        }
+
         void SetGlobalPitchFree(float val) __attribute__((optimize("Os")))
         {
-            val = val < .5f ? (.5f - val) * -2.f : (val - .5f) * 2.f; // 1 - 0 - 1
-
-            float pitch;
-            float inv = val < 0.f ? -1.f : 1.f;
-            if(fabsf(val) < .33f) // .01x - .5x
-                pitch = val * 1.484848f + .01f * inv;
-            else if (fabsf(val) < .66f ) // .5x - 1x
-                pitch = (val - .33f * inv) * 1.515151 + .5f * inv;
-            else // 1x - 2x
-                pitch = (val - .66 * inv) * 2.941176 + 1.f * inv;
-
+            const float pitch = KnobPitch(val);
             SetGlobalPitch(fabsf(pitch));
             SetReverse(pitch < 0.f);
         }
@@ -2107,29 +2104,23 @@ namespace daisy
             return cubbi_slot_;
         }
 
-        // these should really be in a struct defined in the presets file
-        float cubbi_pitch;
-        float cubbi_start;
-        float cubbi_end;
-        float cubbi_attack;
-        float cubbi_decay;
-        bool cubbi_autoloop;
-        bool cubbi_sustain;
-        float cubbi_gain;
-        float cubbi_pan;
-
-        void OpenCubbiSlot(float pitch, float start, float end, float attack, float decay, bool autoloop, bool sustain, float gain, float pan)
+        // a JAMMI slot's preset, onto the sound now
+        void ApplyPreset(const PresetManager::Preset &p)
         {
-            cubbi_pitch = pitch;
-            cubbi_start = start;
-            cubbi_end = end;
-            cubbi_attack = attack;
-            cubbi_decay = decay;
-            cubbi_autoloop = autoloop;
-            cubbi_sustain = sustain;
-            cubbi_gain = gain;
-            cubbi_pan = pan;
+            SetAutoLoop(p.autoloop);
+            SetSustainActive(p.sustain);
+            SetPan(p.pan);
+            const float pitch = KnobPitch(p.pitch);
+            SetGlobalPitch(fabsf(pitch));
+            SetReverse(pitch < 0.f);
+            SetStartPointForce(p.start);
+            SetEndPointForce(p.end);
+            SetGain(p.gain);
+            SetAttack(p.attack);
+            SetDecay(p.decay);
         }
+        // a CUBBI slot's preset, onto the sound when its key plays
+        void OpenCubbiSlot(const PresetManager::Preset &p) { cubbi_ = p; }
 
         void SetVoiceSlot(size_t idx, bool click)
         {
@@ -2292,8 +2283,8 @@ namespace daisy
         // alone, so it is kept right whatever the source.
         void UpdateResampleGain() { resamp_env_target_ = input_monitor ? ingain_target_ : 1.f; }
 
-        // Another source is edited: loop edit ends and the snap lets go.
-        void SourceChanged()
+        // Another source is edited: loop edit ends and the snap lets go. Not inlined, it saves code room.
+        void SourceChanged() __attribute__((noinline))
         {
             loop_edit_ = false;
             snap_.Drop();
@@ -2396,6 +2387,7 @@ namespace daisy
         size_t voice_slot_;
         bool aiff_slot_ = false; // the voices were set up for an .aif, a copy may change kit_slots meanwhile
         size_t cubbi_slot_;
+        PresetManager::Preset cubbi_ = {};
 
         // in jammi mode, which bank is currently active?
         // we can change bank pages without selecting a new slot in that bank
