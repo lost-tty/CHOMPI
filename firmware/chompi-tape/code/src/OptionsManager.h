@@ -25,7 +25,7 @@ class OptionsManager
         buffer[len + app_len] = '\0';
     }
 
-    // the defaults, then options.json over them; the file is rewritten only when it doesn't hold the result
+    // Sets the defaults, then options.json over them. The file is rewritten only when it doesn't hold the result.
     void Init()
     {
         record_latch = false;
@@ -49,7 +49,7 @@ class OptionsManager
         f_close(&fptr_opt);
     }
 
-    // the options as the file holds them
+    // Builds the options as the file holds them.
     void Build(char *to)
     {
         // header

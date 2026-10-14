@@ -49,7 +49,7 @@ class FileCopier
             looper_ram.Init(looper_buff);
         }
 
-        // true while the card is the copier's: a copy runs or a transfer is under way
+        // Returns true while the card is the copier's: a copy runs or a transfer is under way.
         bool CopyProcess()
         {
             if(scan_reading_) // the header landed: the rest of the tick runs
@@ -76,25 +76,27 @@ class FileCopier
 
         inline bool IsCopying()  { return copying_ || !req_fifo.IsEmpty(); }
 
-        // every slot's file made plain once, a slot a tick
+        // Starts the scan that makes every slot's file plain, a slot a tick.
         void StartScan()
         {
             scan_slot_ = scan_bank_ = scan_mode_ = 0;
             scan_reading_ = false;
             scanning_ = true;
         }
-        // the card is pulled: the copy under way is lost, the scan's read with it
+
+        // The card is pulled: drops the copy under way and the scan's read.
         void Detach()
         {
             if(copying_)
                 Abort();
             scan_reading_ = false;
         }
-        inline bool Scanning() const { return scanning_; }
+
+        inline bool IsScanning() const { return scanning_; }
         inline bool IsLooperStaged() { return looper_staged; }
         inline bool LooperWasPlaying() { return looper_was_playing; }
 
-        // the slot's header read by DMA; once it is in, an odd header or a footer queues the rewrite
+        // Reads the slot's header by DMA. Once it is in, an odd header or a footer queues the rewrite.
         void ScanStep()
         {
             const VoiceMode mode = VoiceMode(scan_mode_);
@@ -109,7 +111,8 @@ class FileCopier
                     Request(CopyRequest(scan_slot_ + 1, scan_bank_, mode, scan_slot_ + 1, scan_bank_, mode, false,
                                         CopyRequest::RamDir::NONE, CopyRequest::RamDir::NONE));
             }
-            else if(fx_->GetFileExists(scan_slot_, scan_bank_, mode) && !Engine::IsKitSlot(scan_slot_ + 1, scan_bank_, mode))
+            else if(fx_->GetFileExists(scan_slot_, scan_bank_, mode)
+                    && !Engine::IsKitSlot(scan_slot_ + 1, scan_bank_, mode))
             {
                 char fname[32];
                 Engine::GetFileNameForSlot(scan_slot_ + 1, scan_bank_, mode, fname);
@@ -179,7 +182,7 @@ class FileCopier
             bool append = false;
         };
 
-        // from main or the SD timer
+        // Called from main or the SD timer.
         void Request(const CopyRequest &req)
         {
             ScopedIrqBlocker block;
@@ -187,9 +190,9 @@ class FileCopier
         }
 
     private:
-        enum class Stage { FILL, FILLED, WRITTEN };
+        static constexpr uint32_t kHeader = 2048 + 8; // bytes read from a file's head: enough to find the data chunk
 
-        FIFO<CopyRequest, 16> req_fifo;
+        enum class Stage { FILL, FILLED, WRITTEN };
 
         void Begin()
         {
@@ -504,7 +507,6 @@ class FileCopier
 
         Memory mem_;
         bool copying_;
-        static constexpr uint32_t kHeader = 2048 + 8; // of a file: enough to find the data chunk
         bool scanning_ = false, scan_reading_ = false;
         uint8_t scan_slot_ = 0, scan_bank_ = 0, scan_mode_ = 0;
         // loading next to the playing loop, which keeps playing until the loop point
@@ -527,6 +529,7 @@ class FileCopier
         RamBuffer looper_ram;
         size_t looper_at = 0;
 
+        FIFO<CopyRequest, 16> req_fifo;
         CopyRequest req;
 
         Engine* fx_;

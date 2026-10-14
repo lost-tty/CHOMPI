@@ -18,7 +18,7 @@ static int failures = 0;
         }                                                          \
     } while(0)
 
-constexpr size_t kFileSize = 24576; // ui.h kPreFileSize
+constexpr size_t kFileSize = PresetManager::kFileSize;
 constexpr int kControls = PresetManager::kMaxControls;
 constexpr int kFileControls = PresetManager::kFileControls;
 constexpr int kV1Controls = 7;

@@ -40,7 +40,7 @@ static constexpr uint32_t kLineMonoTime = 24000;   // .5s
 static constexpr uint32_t kLineSettleTime = 72000; // 1.5s
 static constexpr uint32_t kLineStereoTime = 2400;  // 50ms
 static constexpr size_t kMaxPoly = 7;
-static constexpr size_t kStreams = kMaxPoly + 1; // the voices' and the audition's
+static constexpr size_t kStreams = kMaxPoly + 1; // the voices and the audition each stream
 
 namespace daisy
 {
@@ -99,7 +99,7 @@ namespace daisy
         {
             START,
             STOP,
-            AUDITION_START, // key_: an Engine::Point
+            AUDITION_START, // key_ carries an Engine::Point
             AUDITION_STOP,
             DUMMY,
         };
@@ -400,7 +400,7 @@ namespace daisy
             }
         }
 
-        // the FX, faded out while they are off; they keep running so their tails pass
+        // Fades the FX out while they are off. They keep running so their tails pass.
         void MixFx(float **out, size_t size)
         {
             if(fabsf(fx_mix_target_ - fx_mix_) < 1e-4f) // the fade lands
@@ -568,7 +568,7 @@ namespace daisy
             audition_.Prepare();
 
 
-            // for the ears only: the bus that joins after the FX, the looper and the recording
+            // This bus joins after the FX, the looper and the recording; only the ears get it.
             float (&dry)[2][kMaxBlock] = dry_;
             std::fill(dry[0], dry[0] + size, 0.f);
             std::fill(dry[1], dry[1] + size, 0.f);
@@ -703,7 +703,6 @@ namespace daisy
                 out[3][i] += dry[1][i];
             }
 
-
             /** voice write: idle, the input goes round the ring, so a recording keeps kRecRoll before its start */
             RecState rec = rec_state_;
             if(rec != RecState::kDone) // done, it waits for the UI; requests keep
@@ -805,14 +804,16 @@ namespace daisy
             UpdateFx();
         }
 
-        // loop edit: START and END cut the loop, the keys are off; selecting or loading anything ends it
+        // In loop edit START and END cut the loop and the keys are off. Selecting or loading anything ends it.
         bool EditLoops() const { return loop_edit_ || EditVoice().Loops(); }
+
         void SetLoopEdit(bool on)
         {
             loop_edit_ = on;
             snap_.Drop();
             UpdateFx();
         }
+
         bool LoopEdit() const { return loop_edit_; }
 
         // START and END edit the loop in loop edit, else the sample when it is in RAM (the recording or a loaded
@@ -822,17 +823,23 @@ namespace daisy
             const daisy::RamBufferMemory *m = EditVoice().RamSource();
             return loop_edit_ ? !looper.IsFirstRecording() : EditVoice().UsesRam() && m && m->length;
         }
+
         float SamplePoint(int k) const { return k ? EditVoice().EndPoint() : EditVoice().StartPoint(); }
+
         float EditPoint(int k) const { return loop_edit_ ? looper.Point(k) : SamplePoint(k); }
-        float EditPlayhead() const { return loop_edit_ && looper.IsPlaying() ? looper.Playhead() : -1.f; } // -1 while nothing plays
+
+        // -1 while nothing plays
+        float EditPlayhead() const { return loop_edit_ && looper.IsPlaying() ? looper.Playhead() : -1.f; }
+
         bool EditOnTransient() const { return EditInRam() && snap_.On(EditSample(EditPoint(0))); }
 
-        // Returns the memory holding what is edited: the loop's recording or the sample's.
         struct Region
         {
             const int16_t *mem;
             size_t begin, end;
         };
+
+        // Returns the memory holding what is edited: the loop's recording or the sample's.
         Region EditRegion() const
         {
             if(loop_edit_)
@@ -1096,7 +1103,7 @@ namespace daisy
         void StopPlayback(int key)
         {
             const int legato = LegatoVoice();
-            if(legato >= 0 && playing_key[legato] == key && keys_.Count()) // back to the key still held
+            if(legato >= 0 && playing_key[legato] == key && keys_.Count()) // goes back to the key still held
             {
                 playing_key[legato] = keys_.Last().key;
                 chompi_voice[legato].Retune(MidiNoteToPlaybackRatio(keys_.Last().nn));
@@ -1153,7 +1160,7 @@ namespace daisy
             ProcessKeyReqs();
         }
 
-        // the audition's voice plays what the points are set on, dry, while that isn't playing itself
+        // The audition voice plays what the points are set on, dry, while that isn't playing itself.
         void Audition(Point p, bool on)
         {
             Voice &a = audition_;
@@ -1175,7 +1182,8 @@ namespace daisy
             }
             else
             {
-                if((voice_mode == VoiceMode::CUBBI && !cubbi_slot_) || AnyVoicesPlaying()) // no slot played yet, or it sounds
+                // no slot played yet, or it sounds
+                if((voice_mode == VoiceMode::CUBBI && !cubbi_slot_) || AnyVoicesPlaying())
                     return;
                 const Voice &v = EditVoice();
                 SetAuditionSource(v);
@@ -1190,8 +1198,8 @@ namespace daisy
             a.SetReverse(reverse);
             a.SetGlobalPitch(pitch);
             a.SetVarispeed(1.f);
-            // the end's, when the region loops: over the seam
-            uint32_t from = ~0u;
+            // END's audition plays over the seam when the region loops
+            uint32_t from = chompi::Voice::kNoFrame;
             const bool seam = p == Point::kEnd && EditLoops();
             if(p == Point::kEnd)
             {
@@ -1203,7 +1211,7 @@ namespace daisy
             a.StartPlaying(from);
         }
 
-        // the slot a voice plays, from the same memory or file; the file stays open across auditions
+        // Points the audition at the slot a voice plays, the same memory or file. The file stays open across auditions.
         void SetAuditionSource(const Voice &v)
         {
             if(v.GetSlot() == 15 || SlotLoaded())
@@ -1314,7 +1322,7 @@ namespace daisy
             return ret;
         }
 
-        // the voice START and END are set on
+        // START and END are set on this voice.
         const Voice &EditVoice() const { return chompi_voice[voice_mode == VoiceMode::CUBBI ? latest_voice : 0]; }
 
         bool SetEndPoint(float val)
@@ -2096,17 +2104,21 @@ namespace daisy
 
         bool ArpAllowed() { return voice_mode == VoiceMode::JAMMI && !KitSelected() && !input_monitor; }
 
-        // legato: a key pressed while another is held retunes its voice instead of starting one, over the glide
+        // With legato, a key pressed while another is held retunes that voice over the glide instead of starting one.
         void SetLegato(bool on) { legato_ = on; }
+
         bool Legato() const { return legato_; }
+
         float Glide() const { return glide_; }
+
         void SetGlide(float v) // 0..1
         {
             glide_ = v;
             for(size_t i = 0; i < kMaxPoly; i++)
                 chompi_voice[i].SetGlide(v * v * kGlideMax);
         }
-        // the voice the keys down share while one is held; else none
+
+        // Returns the voice the keys down share while one is held, else -1.
         int LegatoVoice() const
         {
             const bool on = legato_ && voice_mode == VoiceMode::JAMMI && !aiff_slot_ && !chompi::arp.On();
@@ -2138,7 +2150,7 @@ namespace daisy
             return cubbi_slot_;
         }
 
-        // a JAMMI slot's preset, onto the sound now
+        // Applies a JAMMI slot's preset to the sound now.
         void ApplyPreset(const PresetManager::Preset &p)
         {
             SetAutoLoop(p.autoloop);
@@ -2155,7 +2167,8 @@ namespace daisy
             SetAttack(p.attack);
             SetDecay(p.decay);
         }
-        // a CUBBI slot's preset, onto the sound when its key plays
+
+        // Keeps a CUBBI slot's preset for when its key plays.
         void OpenCubbiSlot(const PresetManager::Preset &p) { cubbi_ = p; }
 
         void SetVoiceSlot(size_t idx, bool click)
@@ -2190,7 +2203,6 @@ namespace daisy
             }
         }
 
-        // every voice streams the file
         void OpenFiles(const char *name)
         {
             for(size_t i = 0; i < kMaxPoly; i++)
@@ -2210,7 +2222,6 @@ namespace daisy
             v.SetRamSource(loaded ? &chompi::slot_buff : chompi_writer.Memory(), loaded);
             v.SetUsingRam(loaded || voice_slot_ == 15, click);
         }
-
 
         inline VoiceMode GetVoiceMode () { return voice_mode; }
 
@@ -2237,7 +2248,7 @@ namespace daisy
             }
         }
 
-        // the card is gone: what streams from it stops, what is in RAM plays on
+        // The card is gone: stops what streams from it; what is in RAM plays on.
         void StopStreams()
         {
             for(size_t i = 0; i < kMaxPoly; i++)
@@ -2246,7 +2257,8 @@ namespace daisy
             if(!audition_.UsesRam())
                 audition_.Choke();
         }
-        // the card is back: what streams opens its file anew; in CUBBI each voice has its own, the next key does it
+
+        // The card is back: what streams reopens its file. In CUBBI each voice has its own, so the next key does it.
         void ReopenStreams()
         {
             audition_.SetCopyOccurred();
@@ -2261,6 +2273,7 @@ namespace daisy
             GetFileNameForSlot(voice_slot_, bank[int(voice_mode)], voice_mode, name_buffer);
             OpenFiles(name_buffer);
         }
+
         // otherwise, they are post looper
         void SetFxPreLooper(bool pre)
         {
@@ -2358,14 +2371,14 @@ namespace daisy
             return f != was && (k ? SetEndPoint(f) : SetStartPoint(f));
         }
 
-        // a fraction of what's edited, as a sample index of its memory
+        // Converts a fraction of what is edited to a sample index of its memory.
         size_t EditSample(float f) const
         {
             const Region r = EditRegion();
             return r.begin + 2 * size_t(double(f) * ((r.end - r.begin) / 2)); // in double, a point stays on its frame
         }
 
-        // START moved from was to at: where it settles, on a transient or not
+        // START moved from was to at: returns where it settles, on a transient or not.
         size_t Settle(size_t was, size_t at)
         {
             const Region r = EditRegion();

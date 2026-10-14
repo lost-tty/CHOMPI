@@ -161,7 +161,7 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
     // meter.OnBlockEnd();
 }
 
-// the card goes: nothing touches it until it is mounted again
+// Lets go of the card; nothing touches it until it is mounted again.
 void DropCard()
 {
     copier.Detach();
@@ -169,9 +169,10 @@ void DropCard()
     f_mount(nullptr, fsi.GetSDPath(), 0);
 }
 
-// the card pulled while running: the RAM sample and the loop play on, nothing loads or saves meanwhile.
-// The SD timer sees it go and answer again; main takes it back and reads it like at boot
+// When the card is pulled while running, the RAM sample and the loop play on and nothing loads or saves.
+// The SD timer sees it go and answer again; main takes it back and reads it like at boot.
 volatile bool card_gone = false, card_answers = false;
+bool card_shown = false; // what the UI was last told
 void CardLost()
 {
     card_gone = true;
@@ -199,6 +200,7 @@ bool MountCard()
         f_chdir("/TAPE");
     return true;
 }
+
 // Reads the card: the engine takes its options now, the UI takes the options and the presets on its tick.
 void ReadCard()
 {
@@ -209,6 +211,7 @@ void ReadCard()
     engine.UpdateFileExists();
     copier.StartScan();
 }
+
 // Mounts and reads the card anew from main while the SD timer leaves it alone; the UI takes it at once.
 bool TakeCard()
 {
@@ -219,6 +222,7 @@ bool TakeCard()
     ui.ApplyCard();
     return true;
 }
+
 void CardBack()
 {
     if(TakeCard())
@@ -295,7 +299,7 @@ void SDCallback(void* data)
         }
     }
 
-    if(copier.CopyProcess()) // a copy, or the scan reading a header: the card's
+    if(copier.CopyProcess()) // a copy or the scan's header read owns the card
         return;
 
     engine.ProcessFileRequests();
@@ -321,8 +325,8 @@ bool prev_int_state = true;
 bool usb_handoff = false;
 #endif
 
-// the keys held from the start: CHOMPI, PLAY and LOOP for shipping mode, the volume click for test mode;
-// the device runs meanwhile
+// Watches the keys held from the start: CHOMPI, PLAY and LOOP for shipping mode, the volume click for test
+// mode. The device runs meanwhile.
 static constexpr uint32_t kBootHold = 400; // ms
 uint32_t boot_at = 0;
 bool sleep_held = true, vol_held = true, boot_hold_done = false;
@@ -331,8 +335,8 @@ void BootHoldStep(uint32_t now)
 {
     if(boot_hold_done)
         return;
-    sleep_held = sleep_held && hw.button_sr.State(int(Hardware::SwId::KEY_26)) && hw.button_sr.State(int(Hardware::SwId::KEY_27))
-                 && hw.button_sr.State(int(Hardware::SwId::KEY_28));
+    sleep_held = sleep_held && hw.button_sr.State(int(Hardware::SwId::KEY_26))
+                 && hw.button_sr.State(int(Hardware::SwId::KEY_27)) && hw.button_sr.State(int(Hardware::SwId::KEY_28));
     vol_held = vol_held && hw.button_sr.State(int(Hardware::SwId::ENC_6_SW));
     if(!sleep_held && !vol_held)
         boot_hold_done = true;
@@ -348,7 +352,6 @@ void BootHoldStep(uint32_t now)
 
 void MainLoop(void* data)
 {
-
     // volatile float avg_load = meter.GetAvgCpuLoad();
     // volatile float max_load = meter.GetMaxCpuLoad();
     now = daisy::System::GetNow();
@@ -359,13 +362,12 @@ void MainLoop(void* data)
         ui.DoEvents();
         ui.ProcessMidi();
         uit = now;
-        static bool gone = false;
         if(card_answers)
             CardBack();
-        if(card_gone != gone)
+        if(card_gone != card_shown)
         {
-            gone = card_gone;
-            ui.CardGone(gone);
+            card_shown = card_gone;
+            ui.CardGone(card_shown);
         }
 
         if(ui.TakeCardModeRequest() && (usb::InCardMode() || (usb::Connected() && !engine.Recording() && !copier.IsCopying())))
@@ -467,12 +469,13 @@ int main(void)
     slot_loader.Init(&slot_file, slot_bounce, chompi_mem, kMaxRamBuffSize, &chompi_buff);
     streamer.Init(voice_streams, kStreams, stream_files, stream_head, stream_rings, stream_cache, kStreamBlocks);
     hw.Init();
-    for(size_t i = 0; i < hw.KeyLag(); i++) // the keys read pressed and the encoders 0xff until scanned through the debounce: before anyone looks
+    // the keys read pressed and the encoders 0xff until scanned through the debounce: before anyone looks
+    for(size_t i = 0; i < hw.KeyLag(); i++)
     {
         hw.ProcessAllControls();
         System::Delay(1);
     }
-    // the SDRAM is up: the file objects in it start closed, nothing else in it is read before it is written
+    // The SDRAM is up. The file objects in it start closed; nothing else in it is read before it is written.
     slot_file = copy_files[0] = copy_files[1] = SdFile();
     for(SdFile &f : stream_files)
         f = SdFile();
@@ -482,10 +485,11 @@ int main(void)
 
     hw.MpWrite(0x0c, 0B01010001); // set BATT_LOW to 3V, turn on 
 
+    constexpr int kReadWait = 5; // ms a reading takes at most
     for(size_t i = 0; i < 10; i++) // each read lands before the next
     {
         hw.LowBatteryLockoutCheck();
-        for(int w = 0; w < 5 && !hw.read_ready; w++)
+        for(int w = 0; w < kReadWait && !hw.read_ready; w++)
             System::Delay(1);
     }
 
@@ -521,7 +525,7 @@ int main(void)
         ReadCard();
     }
     else
-        card_gone = true; // the built-in sample, until a card is in
+        card_gone = true; // plays the built-in sample until a card is in
 
     now = daisy::System::GetNow();
     uit = now;

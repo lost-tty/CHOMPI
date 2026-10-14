@@ -17,7 +17,6 @@ class PresetManager
     PresetManager() {}
     ~PresetManager() {}
 
-
     void Init(const float* defaults, float volume_default)
     {
         updated = true;
@@ -45,14 +44,16 @@ class PresetManager
         volume = volume_default;
     }
 
-    // the main volume, saved with the presets
+    // The main volume is saved with the presets.
     float Volume() const { return volume; }
+
     void SetVolume(float v)
     {
         volume = v;
         updated = true;
     }
 
+    static constexpr size_t kFileSize = 24576; // bytes
     static constexpr int kMaxModes = 2; // jammi, cubbi
     static constexpr int kMaxBanks = 5; // a, b, c, d, e
     static constexpr int kMaxSlots = 14; // 1, 2, 3, etc.
@@ -74,6 +75,7 @@ class PresetManager
         return {v[kPitch], v[kStart], v[kEnd], v[kAttack], v[kDecay], v[kGain], v[kPan], v[kGlide],
                 v[kAutoloop] > .5f, v[kSustain] > .5f, v[kLegato] > .5f};
     }
+
     void Store(size_t mode, size_t bank, size_t slot, const Preset &p)
     {
         if(slot < 1 || slot > kMaxSlots + 1 || mode >= kMaxModes || bank >= kMaxBanks)
@@ -292,8 +294,11 @@ class PresetManager
         return values_valid[mode][bank][slot];
     }
 
-    /** Returns the string value of a given key, or NULL */
-    float *Values(size_t mode, size_t bank, size_t slot) { return slot == 15 ? chompi_value : values[mode][bank][slot - 1]; }
+
+    float *Values(size_t mode, size_t bank, size_t slot)
+    {
+        return slot == 15 ? chompi_value : values[mode][bank][slot - 1];
+    }
 
     void Invalidate(uint8_t mode, uint8_t bank, uint8_t slot)
     {
@@ -348,8 +353,6 @@ class PresetManager
         updated = true;
     }
 
-
-
     float values[kMaxModes][kMaxBanks][kMaxSlots][kMaxControls];
     float volume;
     bool values_valid[kMaxModes][kMaxBanks][kMaxSlots];
@@ -358,7 +361,6 @@ class PresetManager
     bool chompi_valid;
 
     private:
-    // a collection's items, in order
 
 
 

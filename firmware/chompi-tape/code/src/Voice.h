@@ -13,6 +13,8 @@ namespace chompi
     class Voice
     {
       public:
+        static constexpr uint32_t kNoFrame = ~0u;
+
         void Init(Stream *stream, float sr, daisy::RamBufferMemory *ram);
 
         // adds n samples
@@ -20,7 +22,7 @@ namespace chompi
         // every block, the voice playing or not: keeps the stream's next note filled from the start
         void Prepare();
 
-        void StartPlaying(uint32_t from = ~0u); // from: a frame to begin at this once, else the start
+        void StartPlaying(uint32_t from = kNoFrame); // from: a frame to begin at this once, else the start
         void StopPlaying();
         void Choke();
         bool IsPlaying() const { return env_.IsRunning() || gate_; }
@@ -55,7 +57,7 @@ namespace chompi
 
         // speed: for the next note, while one plays
         void SetVarispeed(float speed);
-        // legato: the note under way goes to speed, over the glide
+        // Legato: the note under way goes to speed over the glide.
         void Retune(float speed)
         {
             next_speed_ = speed;
@@ -112,7 +114,7 @@ namespace chompi
         float Ahead() const;
         Span RamSpan() const;
         Ring &Cur() const { return stream_->ring[cur_]; }
-        void Fill(Spare what, uint32_t pos = ~0u);
+        void Fill(Spare what, uint32_t pos = kNoFrame);
         void Swap();
         void Wait();
         void Reverse();
@@ -128,7 +130,7 @@ namespace chompi
         int cur_;           // the ring that plays
         uint32_t seq_[2];   // the rings' restarts
         Spare spare_;
-        uint32_t spare_pos_; // the frame the spare was filled from, ~0 the span's first
+        uint32_t spare_pos_; // says which frame the spare was filled from; kNoFrame means the span's first
         bool waiting_, running_;
         uint32_t waited_;   // samples a jump waits for the spare ring
 

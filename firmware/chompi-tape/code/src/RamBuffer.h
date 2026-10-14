@@ -59,14 +59,15 @@ namespace daisy
         size_t halve_len[12];
         uint8_t halve_count = 0;
         int8_t length_exp = 0;
-        // the next loop bounds: a length change keeps the phase, a loaded loop waits for the loop point and
-        // restarts, a cut keeps the heads where they are
+        // The next loop bounds apply by kind: a length change keeps the phase, a loaded loop waits for the loop
+        // point and restarts, a cut keeps the heads where they are.
         enum class Pending : uint8_t { kLength, kRestart, kCut };
         Pending pending = Pending::kLength;
         bool loading = false;
 
         size_t pending_len = 0, pending_start = 0;
-        // the recording the loop is cut from, and the cut: the points, in samples of it
+        // rec_start and rec_len bound the recording the loop is cut from; cut_start and cut_end hold the cut's
+        // points, in samples of it.
         size_t rec_start = 0, rec_len = 0;
         size_t cut_start = 0, cut_end = 0;
 
@@ -109,7 +110,7 @@ namespace daisy
         inline size_t RecStart() const { return buff->rec_start; }
         inline size_t RecLen() const { return buff->rec_len; }
 
-        // a point put at pos, or moved by n samples, within the recording; false when it didn't change
+        // Puts a point at pos, or moves it by n samples, within the recording. False when it didn't change.
         bool SetCut(int k, size_t pos)
         {
             if(!buff->rec_len)
@@ -125,16 +126,18 @@ namespace daisy
             pt = v;
             return true;
         }
+
         bool MoveCut(int k, int32_t n)
         {
             const size_t pt = k ? buff->cut_end : buff->cut_start;
             return SetCut(k, size_t(std::max<int32_t>(0, int32_t(pt) + n)));
         }
+
         inline size_t Cut(int k) const { return k ? buff->cut_end : buff->cut_start; }
 
         inline size_t CutLen() const { return buff->cut_end - buff->cut_start; }
 
-        // the point as a fraction of the recording, for its LED
+        // Returns the point as a fraction of the recording, for its LED.
         float CutFraction(int k) const
         {
             const size_t pt = k ? buff->cut_end : buff->cut_start;
@@ -333,7 +336,7 @@ namespace daisy
             return true;
         }
 
-        // the loop as the cut says, at the next loop fade
+        // Makes the loop what the cut says, at the next loop fade.
         void SetCut()
         {
             buff->pending_start = buff->cut_start;
@@ -512,7 +515,8 @@ namespace daisy
 
         void StartUndoTake()
         {
-            if(!buff->undo || buff->loading || buff->pending == RamBufferMemory::Pending::kRestart) // may overwrite the loaded loop
+            // may overwrite the loaded loop
+            if(!buff->undo || buff->loading || buff->pending == RamBufferMemory::Pending::kRestart)
                 return;
             UndoMemory& u = *buff->undo;
 
@@ -648,7 +652,7 @@ namespace daisy
             return i < lo ? i : i + n;
         }
 
-        // a head once the pending bounds apply
+        // Returns where a head is once the pending bounds apply.
         size_t Into(RamBufferMemory::Pending kind, size_t head) const
         {
             const size_t start = buff->pending_start, end = start + buff->pending_len;

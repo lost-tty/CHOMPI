@@ -120,7 +120,7 @@ namespace chompi
             name_[0] = '\0';
         }
 
-        // the card is pulled: a load under way is lost and waits for the card, what is loaded stays
+        // The card is pulled: a load under way is lost and waits for the card; what is loaded stays.
         void Detach()
         {
             if(!loading_)
@@ -131,6 +131,7 @@ namespace chompi
             name_[0] = '\0';
             pending_ = true;
         }
+
         // its files changed: load it again next time, a load under way stops
         void Forget(const char *name)
         {

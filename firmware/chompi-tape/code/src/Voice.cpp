@@ -33,7 +33,7 @@ namespace chompi
         idx_ = 0;
         back_ = floor_ends_ = false;
         floor_ = 0;
-        next_jump_ = ~0u;
+        next_jump_ = kNoFrame;
         pending_ = Action::kNone;
         trigger_ = false;
         fade_ = 0.f;
@@ -52,7 +52,7 @@ namespace chompi
     void Voice::RestoreDefaults()
     {
         auto_loop_ = sustain_ = true;
-        from_ = ~0u;
+        from_ = kNoFrame;
         pitch_ = 1.f;
         speed_ = next_speed_ = 1.f;
         glide_rate_ = 0.f;
@@ -251,7 +251,7 @@ namespace chompi
                 Fill(Spare::kStart, from_);
             Wait();
         }
-        from_ = ~0u;
+        from_ = kNoFrame;
         if(trigger)
         {
             env_.Retrigger(false);
@@ -297,7 +297,7 @@ namespace chompi
         spare_ = Spare::kNone;
         idx_ = 0;
         back_ = false;
-        next_jump_ = ~0u;
+        next_jump_ = kNoFrame;
         Snap();
     }
 
@@ -347,14 +347,14 @@ namespace chompi
             idx_ += 5;
             back_ = false;
             spare_ = Spare::kNone;
-            next_jump_ = ~0u;
+            next_jump_ = kNoFrame;
             return;
         }
         Sync();
         const uint32_t floor = g.read > Ring::kHistory ? g.read - Ring::kHistory : 0;
         if(idx_ < floor + 5) // too little played: the spare from here
         {
-            Fill(Spare::kHere, idx_ ? g.PosAt(idx_ - 1) : ~0u);
+            Fill(Spare::kHere, idx_ ? g.PosAt(idx_ - 1) : kNoFrame);
             Wait();
             return;
         }
@@ -365,15 +365,15 @@ namespace chompi
         // the spare goes on from what played before floor_
         uint32_t p = g.PosAt(floor_);
         const Span span = Span::Of(start_, end_, stream_->frames, play_reverse_, Loops());
-        floor_ends_ = p != ~0u && span.Contains(p) && !span.Next(p);
+        floor_ends_ = p != kNoFrame && span.Contains(p) && !span.Next(p);
         if(!floor_ends_)
-            Fill(Spare::kHere, p != ~0u && span.Contains(p) ? p : ~0u);
+            Fill(Spare::kHere, p != kNoFrame && span.Contains(p) ? p : kNoFrame);
     }
 
     void Voice::Stop()
     {
         running_ = waiting_ = ended_ = false;
-        from_ = ~0u;
+        from_ = kNoFrame;
         gate_ = false;
         env_.Init(sr_); // silent at once
         env_.SetSustainLevel(1.f);
@@ -476,7 +476,7 @@ namespace chompi
         r = s162f(f[1]);
         if(back_)
         {
-            if(next_jump_ != ~0u && n + 1 == next_jump_)
+            if(next_jump_ != kNoFrame && n + 1 == next_jump_)
             {
                 jump_ = 3;
                 next_jump_ = g.PrevJump(n);
@@ -484,7 +484,7 @@ namespace chompi
             idx_ = n - 1;
             return true;
         }
-        if(next_jump_ == ~0u || n > next_jump_)
+        if(next_jump_ == kNoFrame || n > next_jump_)
             next_jump_ = g.NextJump(n);
         if(n == next_jump_)
             jump_ = 3;
@@ -510,12 +510,12 @@ namespace chompi
         const Ring &g = Cur();
         if(back_)
         {
-            const uint32_t low = next_jump_ != ~0u && next_jump_ <= idx_ + 1 ? std::max(next_jump_, floor_) : floor_;
+            const uint32_t low = next_jump_ != kNoFrame && next_jump_ <= idx_ + 1 ? std::max(next_jump_, floor_) : floor_;
             const uint32_t k = std::min(n, idx_ + 1 - std::min(low, idx_ + 1));
             idx_ -= k;
             return k;
         }
-        if(next_jump_ == ~0u || idx_ > next_jump_)
+        if(next_jump_ == kNoFrame || idx_ > next_jump_)
             next_jump_ = g.NextJump(idx_);
         const uint32_t to = std::min(std::min(avail_, done_), next_jump_);
         const uint32_t k = to > idx_ ? std::min(n, to - idx_) : 0;
@@ -532,11 +532,11 @@ namespace chompi
             return span_.Contains(pos_) ? span_.Left(pos_) + 1.f : 1e9f;
         if(back_) // frames down to the one before the jump, or to floor_ when the note ends there
         {
-            const uint32_t to = !floor_ends_ ? next_jump_ : next_jump_ != ~0u ? std::max(next_jump_, floor_) : floor_;
-            return to == ~0u || to > idx_ + 1 ? 1e9f : float(idx_ + 1 - to);
+            const uint32_t to = !floor_ends_ ? next_jump_ : next_jump_ != kNoFrame ? std::max(next_jump_, floor_) : floor_;
+            return to == kNoFrame || to > idx_ + 1 ? 1e9f : float(idx_ + 1 - to);
         }
         const uint32_t to = std::min(next_jump_, done_);
-        return to == ~0u ? 1e9f : float(to - std::min(to, idx_));
+        return to == kNoFrame ? 1e9f : float(to - std::min(to, idx_));
     }
 
     Span Voice::RamSpan() const { return Span::Of(start_, end_, ram_->length / 2, play_reverse_, Loops()); }

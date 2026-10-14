@@ -5,7 +5,7 @@
 
 namespace chompi
 {
-    // a knob's click: held it does one thing, turned while pressed another, a plain click a third
+    // Tells a knob's click apart from a hold and a turn while pressed.
     class PressKnob
     {
       public:
@@ -14,7 +14,8 @@ namespace chompi
             hold_.Init();
             turned_ = false;
         }
-        // true for the plain click
+
+        // Returns true for the plain click.
         bool Click(bool down, uint32_t now)
         {
             if(!down)
@@ -23,9 +24,12 @@ namespace chompi
             turned_ = false;
             return false;
         }
+
         bool Held(uint32_t now) { return hold_.Held(now); }
+
         bool Down() const { return hold_.Down(); }
-        // a turn: true while pressed, which then is neither a click nor a hold
+
+        // Notes a turn. Returns true while pressed, and the press then counts as neither a click nor a hold.
         bool Turning()
         {
             if(!hold_.Down())
@@ -34,7 +38,9 @@ namespace chompi
             hold_.Cancel();
             return true;
         }
+
         bool Turned() const { return hold_.Down() && turned_; }
+
         void Lost() { hold_.Lost(); }
 
       private:

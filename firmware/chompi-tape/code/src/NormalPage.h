@@ -203,10 +203,6 @@ namespace chompi
             leds.ui.Pth(7, 1.f, 1.f, 1.f);
             leds.ui.Pth(8, 1.f, 1.f, 1.f);
             leds.ui.ClearKeys();
-            // leds.ui.Smt(i, .1f, .1f, .0f);
-            // leds.ui.Smt(0, 0.f, 0.f, 0.f);
-            // leds.ui.Smt(9, 0.f, 0.f, 0.f);
-            // leds.ui.Smt(10, 0.f, 0.f, 0.f);
         }
 
         uint32_t last_arm_blink;
@@ -221,7 +217,7 @@ namespace chompi
             leds.ui.ClearKeys();
         }
 
-        // from options.json, once the card is read
+        // Takes the options once the card is read.
         void SetOptions(uint8_t midi_out_channel, bool ps_quant, bool split_delay)
         {
             midi_channel = midi_out_channel;
@@ -231,7 +227,7 @@ namespace chompi
                 enc_values[0][3] = .5f;
         }
 
-        // from presets.json, once the card is read
+        // Takes the presets once the card is read.
         void ApplyPresets() { enc_values[0][5] = presets_->Volume(); }
 
         void Draw(const daisy::UiCanvasDescriptor &canvasDescriptor) override __attribute__((optimize("Os")))
@@ -242,35 +238,17 @@ namespace chompi
                 knob_page[0] = 0;
 
             if(pitch_press_.Held(now)) // the left knob held: the arp's latch, or legato on the pitch page
-
-
             {
-
-
                 if(knob_page[0] == 2)
-
-
                     arp_knob.Latch();
-
-
                 else if(knob_page[0] == 0)
-
-
                 {
-
-
                     fx_->SetLegato(!fx_->Legato());
-
-
                     DumpValuePresets();
-
-
                 }
-
-
             }
-            const Audition::Event audition_event = audition.Update(now);
-            AuditionEvent(audition_event, audition.What());
+            const Audition::Event audition_event = audition_.Update(now);
+            AuditionEvent(audition_event, audition_.What());
             if(knob_page[3] == 0 && magic_hold.Held(now)) // the reverb page, where it shows
                 grains.ToggleFreeze();
 
@@ -297,7 +275,7 @@ namespace chompi
                 fx_->ResetLooperPitchQuant();
             }
 
-            // the switch up with a sample in RAM: START and END edit it, the keys show it
+            // With the switch up and a sample in RAM, START and END edit it and the keys show it.
             const bool edit_keys = fx_->LoopEdit() || (!switch_state && fx_->EditInRam());
             int at_start = 0, at_end = 0, at_play = 0;
             bool on_transient = false, blink = false;
@@ -429,7 +407,7 @@ namespace chompi
                         if(t > 0.f && fx_->GetVUSample(VUTarget::VU_INPUT) >= t * t * t)
                             g = b = 0.f;
                     }
-                    else if(page == 0) // speed; pressed: legato, turned: glide
+                    else if(page == 0) // speed; pressed it shows legato, turned while pressed the glide
                     {
                         if(pitch_press_.Turned())
                             b = .2f + .8f * fx_->Glide();
@@ -964,7 +942,6 @@ namespace chompi
             //         fx_->SetReverse(false);
 
             //         DumpValuePresets();
-            //         leds.ui.Pth(1, green[0], green[1], green[2]);
             //     }
 
             //     hw_->SendCC(midi_channel, key_map[buttonID], rising ? 127 : 0);
@@ -1078,9 +1055,9 @@ namespace chompi
         // A point moved: its audition starts once the knob rests.
         void AuditionTurn(Engine::Point p)
         {
-            if(audition.On())
-                AuditionEvent(Audition::Event::kStop, audition.What());
-            audition.Turn(int(p), System::GetNow(), fx_->AuditionMs(p));
+            if(audition_.On())
+                AuditionEvent(Audition::Event::kStop, audition_.What());
+            audition_.Turn(int(p), System::GetNow(), fx_->AuditionMs(p));
         }
 
         void OpenCubbiSlot(size_t slot)
@@ -1173,7 +1150,7 @@ namespace chompi
                     arp_knob.Turn(turns, false, pitch_press_.Turning());
                 return true;
             }
-            if(encoderID == 0 && page == 0 && stepsPerRevolution == 0 && pitch_press_.Turning()) // glide
+            if(encoderID == 0 && page == 0 && stepsPerRevolution == 0 && pitch_press_.Turning()) // turned while pressed: sets the glide
             {
                 fx_->SetGlide(fclamp(fx_->Glide() + (turns > 0 ? kGlideStep : -kGlideStep), 0.f, 1.f));
                 DumpValuePresets();
@@ -1289,9 +1266,9 @@ namespace chompi
             transport_hold.Lost();
             magic_hold.Lost();
             pitch_press_.Lost();
-            if(audition.On())
-                AuditionEvent(Audition::Event::kStop, audition.What());
-            audition.Turn(0, System::GetNow());
+            if(audition_.On())
+                AuditionEvent(Audition::Event::kStop, audition_.What());
+            audition_.Turn(0, System::GetNow());
         }
 
     private:
@@ -1315,7 +1292,7 @@ namespace chompi
         }
 
         static int KeySlice(size_t key) { return key_map[key] - 48; } // as StartPlayback picks it
-        // a white key's number from the left, -1 for a black one
+        // Returns a white key's number from the left, -1 for a black one.
         static int WhiteKey(int note)
         {
             static const int8_t kWhite[12] = {0, -1, 1, -1, 2, 3, -1, 4, -1, 5, -1, 6};
@@ -1337,7 +1314,7 @@ namespace chompi
         uint8_t midi_channel = 0;
         bool switch_state = false;
         bool chompi_key_pressed = false;
-        Audition audition;
+        Audition audition_;
         PressKnob pitch_press_;
         static constexpr float kGlideStep = .05f;
         int8_t transport_turns = 0;

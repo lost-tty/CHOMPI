@@ -5,7 +5,7 @@
 
 namespace chompi
 {
-    // the knob rows a preset fills: page 0 pitch; page 1 gain, attack, decay. The points are the engine's
+    // Fills the knob rows from a preset: page 0 pitch; page 1 gain, attack, decay. The points are the engine's.
     inline void KnobsFromPreset(const PresetManager::Preset &p, float **enc)
     {
         enc[0][0] = p.pitch;

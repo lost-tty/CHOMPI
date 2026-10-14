@@ -117,12 +117,12 @@ namespace daisy
                     record = record_target = false;
                 undo_req = false;
             }
-            if(mark_req_ && !record) // the recording as written, its last block included
+            if(mark_req_ && !record) // marks the recording as written, its last block included
             {
                 mark_req_ = false;
                 looper.ram_buff.MarkRecorded();
             }
-            // a copy or a load addresses the loop as it is: the cut waits
+            // A copy or a load addresses the loop as it is, so the cut waits.
             if(cut_req_ && !looper.ram_buff.IsCopying() && !looper.ram_buff.IsPending())
             {
                 cut_req_ = false;
@@ -403,10 +403,11 @@ namespace daisy
             }
         }
 
-        // loop edit: the points, in samples of the recording; with a clock, END keeps the loop a whole number
-        // of 16ths from the start
+        // In loop edit the points are samples of the recording. With a clock, END keeps the loop a whole number
+        // of 16ths from the start.
         float Point(int k) const { return looper.ram_buff.CutFraction(k); }
-        bool MoveCut(int k, int turns, uint32_t step) // step: frames a detent moves
+
+        bool MoveCut(int k, int turns, uint32_t step) // step says how many frames a detent moves
         {
             RamBuffer &rb = looper.ram_buff;
             int32_t n = turns * int32_t(step) * 2;
@@ -426,6 +427,7 @@ namespace daisy
             cut_req_ = true;
             return true;
         }
+
         bool SetCut(int k, size_t pos)
         {
             if(!looper.ram_buff.SetCut(k, pos))
@@ -433,13 +435,14 @@ namespace daisy
             cut_req_ = true;
             return true;
         }
+
         size_t Cut(int k) const { return looper.ram_buff.Cut(k); }
 
         daisy::RamBufferMemory *Memory() const { return looper.ram_buff.Memory(); }
         size_t RecStart() const { return looper.ram_buff.RecStart(); }
         size_t RecLen() const { return looper.ram_buff.RecLen(); }
 
-        // the playhead as a fraction of the recording
+        // Returns the playhead as a fraction of the recording.
         float Playhead() const
         {
             const RamBuffer &rb = looper.ram_buff;

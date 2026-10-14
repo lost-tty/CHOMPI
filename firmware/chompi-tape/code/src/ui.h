@@ -83,10 +83,10 @@ namespace chompi
             ui.OpenPage(test_page_);
         }
 
-        // the card pulled: a red blink, and the menu shows it until the card is back
+        // The card is pulled: blinks red, and the menu shows it until the card is back.
         void CardGone(bool gone)
         {
-            menu_page_.NoSDCard(gone);
+            menu_page_.CardGone(gone);
             if(gone)
             {
                 ui.ClosePage(menu_page_);
@@ -101,7 +101,7 @@ namespace chompi
         void CardMode(bool on) { menu_page_.CardMode(on); }
         bool TakeCardModeRequest() { return menu_page_.TakeCardModeRequest(); }
 
-        // from the SD timer until main runs the UI: the rainbow, and the pages once there is sound
+        // Runs from the SD timer until main runs the UI: the rainbow, and the pages once there is sound.
         void BootTick(uint32_t now, bool pages)
         {
             const bool drew = rainbow_.Step(now, false);
@@ -268,11 +268,6 @@ namespace chompi
                 }
                 else if (hw_->button_sr.FallingEdge(i))
                 {
-                    // chompi key changes page to MenuPage
-                    if (i == static_cast<int>(Hardware::SwId::KEY_26))
-                    {
-                        // normal_page_.RefreshLeds();
-                    }
                     event_queue.AddButtonReleased(i);
                 }
                 else if (hw_->button_sr.RisingEdge(i))
@@ -283,7 +278,6 @@ namespace chompi
                         && normal_page_.IsActive()
                         && !test_page_.IsActive())
                     {
-                        // normal_page_.CacheLeds();
                         ui.OpenPage(menu_page_);             
                     }
                     event_queue.AddButtonPressed(i, 1);
@@ -313,10 +307,8 @@ namespace chompi
         FileStreamingManager* manager;
         FIL fptr_pre;
         char fname[32];
-        static const size_t kPreFileSize = 24576; // room for the legato and glide settings
-        char presets_file[kPreFileSize];
+        char presets_file[PresetManager::kFileSize];
 
-        // pitch, start, end, att, decay, autoloop, sustainactive, gain, pan
         const float defaults[PresetManager::kMaxControls] = {enc_defaults[0][0], enc_defaults[0][1], enc_defaults[0][2],
                                                              enc_defaults[1][1], enc_defaults[1][2], 1.f, 1.f,
                                                              enc_defaults[1][0], .5f, 0.f, 0.f};
@@ -331,12 +323,13 @@ namespace chompi
             if(f_open(&fptr_pre, fname, FA_READ) == FR_OK)
             {
                 UINT br = 0;
-                presets_read_ = f_read(&fptr_pre, presets_file, kPreFileSize - 1, &br) == FR_OK;
+                presets_read_ = f_read(&fptr_pre, presets_file, PresetManager::kFileSize - 1, &br) == FR_OK;
                 presets_file[br] = '\0';
                 f_close(&fptr_pre);
             }
             card_pending_ = true;
         }
+
         void ApplyCard()
         {
             if(!card_pending_)
@@ -346,7 +339,7 @@ namespace chompi
             normal_page_.SetOptions(options_->midi_ch_out, options_->pitch_shift_quantization, options_->delay_split);
             menu_page_.SetOptions(options_->pitch_shift_quantization, options_->delay_split);
             if(presets_read_)
-                presets_manager->Parse(presets_file, kPreFileSize);
+                presets_manager->Parse(presets_file, PresetManager::kFileSize);
             normal_page_.ApplyPresets();
         }
 
@@ -371,7 +364,7 @@ namespace chompi
         {
             if(write_stage == 0) // start chunked write
             {
-                PresetManager::Result res = presets_manager->WriteWholeFile(presets_file, kPreFileSize);
+                PresetManager::Result res = presets_manager->WriteWholeFile(presets_file, PresetManager::kFileSize);
                 if(res == PresetManager::Result::OK)
                 {
                     write_stage = 1;
@@ -379,14 +372,14 @@ namespace chompi
             }
         }
 
-
-        // the card goes: a write under way is dropped, the next change writes anew
+        // The card goes: drops a write under way; the next change writes anew.
         void DropPresetsWrite()
         {
             if(write_stage >= 2)
                 f_close(&fptr_pre);
             write_stage = 0;
         }
+
         void WritePresets() __attribute__((optimize("-O0")))
         {
             if(write_stage == 0)

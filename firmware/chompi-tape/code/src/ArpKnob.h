@@ -12,8 +12,10 @@ namespace chompi
     {
       public:
         void Init() { ticks_ = 0; }
+
         void Latch() { arp.SetLatch(!arp.Latched()); }
-        // press: turned while pressed
+
+        // press says the knob was turned while pressed
         void Turn(int turns, bool shift, bool press)
         {
             const int dir = turns > 0 ? 1 : -1;

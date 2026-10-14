@@ -331,7 +331,7 @@ namespace daisy
                 loop_env_dec = loop_env_dec_val;
         }
 
-        // the loop as the cut says, after a fade out
+        // Makes the loop what the cut says, after a fade out.
         void Cut()
         {
             ram_buff.SetCut();

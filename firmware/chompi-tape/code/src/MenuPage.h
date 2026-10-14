@@ -158,7 +158,7 @@ namespace chompi
                 || preset_mode == PresetMode::COPY_DEST)
             {
                 leds.ui.Pth(5, 0.f, 0.f, 0.f);
-                leds.ui.Pth(6, 0.f, 0.f, 0.f);                
+                leds.ui.Pth(6, 0.f, 0.f, 0.f);
 
                 if(selected_slot == 16)
                 {
@@ -196,7 +196,7 @@ namespace chompi
             else
             {
                 leds.ui.Pth(5, 0.f, 0.f, 0.f);
-                leds.ui.Pth(6, 0.f, 0.f, 0.f);                
+                leds.ui.Pth(6, 0.f, 0.f, 0.f);
 
                 leds.ui.Pth(7, 0.f, 0.f, 0.f);
                 leds.ui.Pth(8, 0.f, 0.f, 0.f);
@@ -292,7 +292,7 @@ namespace chompi
             if((preset_mode == PresetMode::SAVE_SEL 
                 || preset_mode == PresetMode::SAVING
                 || preset_mode == PresetMode::NONE)
-                && !no_sd_card_)
+                && !card_gone_)
             {
                 if(fx_->GetFileExists(14))
                     leds.ui.Smt(9, blue[0], blue[1], blue[2]);
@@ -310,7 +310,7 @@ namespace chompi
                 || preset_mode == PresetMode::COPY_DEST
                 || preset_mode == PresetMode::COPYING
                 || preset_mode == PresetMode::NONE)
-                && !no_sd_card_)
+                && !card_gone_)
             {
                 leds.ui.Smt(8, green[0], green[1], green[2]); // copy
             }
@@ -323,7 +323,7 @@ namespace chompi
             if((preset_mode == PresetMode::ERASE_SEL 
                 || preset_mode == PresetMode::ERASING
                 || preset_mode == PresetMode::NONE)
-                && !no_sd_card_)
+                && !card_gone_)
             {
                 leds.ui.Smt(7, red[0], red[1], red[2]); // erase
             }
@@ -357,7 +357,7 @@ namespace chompi
             // white keys
             for (uint8_t i = 1; i < 16; i++)
             {
-                if(no_sd_card_)
+                if(card_gone_)
                     leds.ui.Smt(25 - i, red[0], red[1], red[2]);
                 else if(card_mode_)
                     leds.ui.Smt(25 - i, blue[0], blue[1], blue[2]);
@@ -433,7 +433,7 @@ namespace chompi
                     key_color = &yellow_green[0];
             }                
 
-            if(!no_sd_card_)
+            if(!card_gone_)
                 leds.ui.Smt(mode, key_color[0], key_color[1], key_color[2]);
             else
                 leds.ui.Smt(mode, 0.f, 0.f, 0.f);
@@ -770,7 +770,7 @@ namespace chompi
             case static_cast<uint16_t>(Hardware::SwId::KEY_16): // Jammi mode bank, fall through
             case static_cast<uint16_t>(Hardware::SwId::KEY_17): // Cubbi mode bank
             {                
-                if(rising && !no_sd_card_)
+                if(rising && !card_gone_)
                 {
                     VoiceMode mode;
                     if(buttonID == static_cast<uint16_t>(Hardware::SwId::KEY_16))
@@ -848,7 +848,7 @@ namespace chompi
 
             case static_cast<uint16_t>(Hardware::SwId::KEY_23): // erase
             {
-                if(rising && !no_sd_card_)
+                if(rising && !card_gone_)
                 {
                     if(preset_mode == PresetMode::NONE)
                         preset_mode = PresetMode::ERASE_SEL;
@@ -873,7 +873,7 @@ namespace chompi
                     StartLongPress(buttonID);
                 else if(long_press_key == buttonID)
                     long_press_key = kNoKey;
-                if(rising && !no_sd_card_)
+                if(rising && !card_gone_)
                 {                    
                     if(preset_mode == PresetMode::NONE)
                         preset_mode = PresetMode::COPY_SRC;
@@ -899,7 +899,7 @@ namespace chompi
 
             case static_cast<uint16_t>(Hardware::SwId::KEY_25): // save
             {
-                if(rising && fx_->GetFileExists(14) && !no_sd_card_)
+                if(rising && fx_->GetFileExists(14) && !card_gone_)
                 {
                     if(preset_mode == PresetMode::NONE)
                         preset_mode = PresetMode::SAVE_SEL;
@@ -923,7 +923,7 @@ namespace chompi
 
             // white keys and play/pause
             default:
-                if(buttonID == 33 || buttonID == 34) // both together: loop edit mode on or off
+                if(buttonID == 33 || buttonID == 34) // both pressed together switch loop edit on or off
                 {
                     const int other = buttonID == 33 ? 34 : 33;
                     if(rising && hw_->button_sr.State(other))
@@ -992,7 +992,7 @@ namespace chompi
                     else if(preset_mode == PresetMode::NONE 
                             && fx_->GetFileExists(slot_req - 1)
                             && fx_->GetVoiceMode() == VoiceMode::JAMMI
-                            && !no_sd_card_)
+                            && !card_gone_)
                     {
                         ss_bank = fx_->GetBank();
                         ss_mode = fx_->GetVoiceMode();
@@ -1123,8 +1123,8 @@ namespace chompi
             return false;
         }
 
-        bool no_sd_card_ = false;
-        inline void NoSDCard(bool gone) { no_sd_card_ = gone; }
+        bool card_gone_ = false;
+        inline void CardGone(bool gone) { card_gone_ = gone; }
         bool card_mode_ = false, card_mode_request_ = false; // the card as a USB drive
         void CardMode(bool on) { card_mode_ = on; }
         bool TakeCardModeRequest()

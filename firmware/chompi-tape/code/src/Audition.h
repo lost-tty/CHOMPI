@@ -6,14 +6,14 @@
 
 namespace chompi
 {
-    // A point being set plays for a moment once its knob rests; turning again stops it and waits anew.
+    // Plays a point for a moment once its knob rests. Turning again stops the play and waits anew.
     class Audition
     {
       public:
         enum class Event : uint8_t { kNone, kStart, kStop };
 
-        // the knob moved point what (0: nothing to play), to play for play ms; a play under way is stopped by
-        // the caller first
+        // The knob moved point what (0: nothing to play), which then plays for play ms. The caller stops a play
+        // under way first.
         void Turn(int what, uint32_t now, uint32_t play = 0)
         {
             what_ = what;
@@ -23,7 +23,7 @@ namespace chompi
             at_ = now + kSettle;
         }
 
-        // kStart and kStop are for What()
+        // kStart and kStop refer to What()
         Event Update(uint32_t now)
         {
             if(int32_t(now - at_) < 0)

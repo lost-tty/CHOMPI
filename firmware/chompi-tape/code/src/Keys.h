@@ -5,7 +5,7 @@
 
 namespace chompi
 {
-    // the keys down, in the order pressed
+    // Keeps the keys down in the order pressed.
     class Keys
     {
       public:
@@ -17,6 +17,7 @@ namespace chompi
         static constexpr int kMax = 16;
 
         void Clear() { count_ = 0; }
+
         void Press(int key, float nn, float vel)
         {
             Release(key);
@@ -24,6 +25,7 @@ namespace chompi
                 Remove(0);
             keys_[count_++] = {key, nn, vel};
         }
+
         bool Release(int key)
         {
             const int i = Find(key);
@@ -32,7 +34,9 @@ namespace chompi
             Remove(i);
             return true;
         }
+
         int Count() const { return count_; }
+
         const Key &Last() const { return keys_[count_ - 1]; }
 
       private:
@@ -43,6 +47,7 @@ namespace chompi
                     return i;
             return -1;
         }
+
         void Remove(int i)
         {
             std::copy(keys_ + i + 1, keys_ + count_, keys_ + i);

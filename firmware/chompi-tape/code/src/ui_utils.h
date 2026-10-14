@@ -11,10 +11,9 @@ void FlushLeds(const daisy::UiCanvasDescriptor& canvasDescriptor)
 void ClearLeds(const daisy::UiCanvasDescriptor& canvasDescriptor)
 {
     // hw.ClearLeds();
-
 }
 
-// crossfades for the LED colours
+// Crossfades between LED colours.
 inline float color_xfade(float start, float end, float idx) { return (1.f - idx) * start + idx * end; }
 inline float color_triple_xfade(float start, float mid, float end, float idx)
 {

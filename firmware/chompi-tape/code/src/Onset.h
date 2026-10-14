@@ -17,11 +17,13 @@ namespace chompi
     static constexpr float kOnsetRise = 4.f;        // 6 dB over the baseline
     static constexpr float kOnsetBaseline = .0625f; // the baseline's step per ms
     static constexpr float kOnsetHighpass = .8f;    // ~1.5 kHz
+    static constexpr float kOnsetBase = .01f;       // the baseline's floor, a fraction of kOnsetFloor
+    static constexpr size_t kProfileHop = 32;       // stereo samples: a profile reads every 16th frame
 
-    // The onset nearest to at within the stereo int16 samples [lo, hi) of [begin, end), as a sample index.
-    // Per ms, the energy full band and above the highpass against a running baseline of each: an onset is
-    // new energy in either, over the baseline by the rise and above the floor; a run of such milliseconds
-    // counts at its loudest one
+    // Finds the onset nearest to at within the stereo int16 samples [lo, hi) of [begin, end) and returns it as a
+    // sample index. Each millisecond's energy, full band and above the highpass, is held against a running
+    // baseline: an onset is new energy in either, over the baseline by the rise and above the floor. A run of
+    // such milliseconds counts at its loudest one.
     inline size_t Onset(const int16_t *mem, size_t begin, size_t end, size_t lo, size_t hi, size_t at)
     {
         lo = std::max(begin, lo) & ~size_t(1);
@@ -44,7 +46,7 @@ namespace chompi
             if(p >= lo)
                 for(int k = 0; k < 2; k++)
                     if(e[k] >= kOnsetHop * .5f * kOnsetFloor)
-                        score = std::max(score, e[k] / (base[k] + kOnsetHop * .5f * kOnsetFloor * .01f));
+                        score = std::max(score, e[k] / (base[k] + kOnsetHop * .5f * kOnsetFloor * kOnsetBase));
             if(score >= kOnsetRise)
             {
                 if(run == kNoOnset || score > run_score)
@@ -71,7 +73,8 @@ namespace chompi
         return best;
     }
 
-    // The loudness of the stereo int16 samples [begin, end) in n parts, 0..1 of the loudest, from every 16th frame
+    // Measures the loudness of the stereo int16 samples [begin, end) in n parts, 0..1 of the loudest, from every
+    // kProfileHop'th sample.
     inline void Profile(const int16_t *mem, size_t begin, size_t end, float *out, size_t n)
     {
         const size_t len = end - begin;
@@ -81,10 +84,11 @@ namespace chompi
             const size_t lo = begin + (len * k / n & ~size_t(1)), hi = begin + (len * (k + 1) / n & ~size_t(1));
             float e = 0.f;
             size_t m = 0;
-            for(size_t p = lo; p + 2 <= hi; p += 32, m++)
+            for(size_t p = lo; p + 2 <= hi; p += kProfileHop)
             {
                 const float x = (s162f(mem[p]) + s162f(mem[p + 1])) * .5f;
                 e += x * x;
+                m++;
             }
             out[k] = m ? sqrtf(e / m) : 0.f;
             top = std::max(top, out[k]);
@@ -93,15 +97,15 @@ namespace chompi
             out[k] /= top;
     }
 
-    // A start point that snaps onto a transient ahead of it in the direction it is turned, and holds it:
-    // moved away it goes freely, moved back toward it while still near it snaps again, well away it lets go.
+    // Snaps a start point onto a transient ahead of it in the direction it is turned, and holds it: moved
+    // away it goes freely, moved back toward it while still near it snaps again, well away it lets go.
     class Snap
     {
       public:
-        // the point moved from was to at within [begin, end): where it settles
+        // The point moved from was to at within [begin, end): returns where it settles.
         size_t Settle(const int16_t *mem, size_t begin, size_t end, size_t was, size_t at)
         {
-            if(at_ < begin || at_ >= end) // another recording's
+            if(at_ < begin || at_ >= end) // the held transient was another recording's
                 at_ = kNoOnset;
             if(at_ != kNoOnset)
             {
@@ -117,13 +121,13 @@ namespace chompi
             return at_ != kNoOnset ? at_ : at;
         }
 
-        // the point sits on the transient it holds
+        // Returns whether the point sits on the transient it holds.
         bool On(size_t at) const { return at_ != kNoOnset && at == at_; }
 
         void Drop() { at_ = kNoOnset; }
 
       private:
-        // ahead a transient is caught from, behind for one just passed, and away before it is let go
+        // A transient is caught from this far ahead, or behind for one just passed, and let go this far away.
         static constexpr size_t kAhead = 2 * 12000, kBehind = 2 * 480, kHold = 2 * 4800; // 250, 10, 100 ms
 
         size_t at_ = kNoOnset;
