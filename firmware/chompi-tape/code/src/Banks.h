@@ -18,6 +18,15 @@ namespace chompi
         {'c', teal},
         {'d', dark_orange},
         {'e', yellow_green},
+        {'f', bank_red},
+        {'g', bank_green},
+        {'h', bank_yellow},
+        {'i', vermilion},
+        {'j', sky},
+        {'k', indigo},
+        {'l', white},
+        {'m', bank_lime},
+        {'n', bank_magenta},
     };
     static constexpr size_t kNumBanks = sizeof(kBanks) / sizeof(kBanks[0]);
 
