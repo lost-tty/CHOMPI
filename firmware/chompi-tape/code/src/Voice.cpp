@@ -55,6 +55,8 @@ namespace chompi
         from_ = ~0u;
         pitch_ = 1.f;
         speed_ = next_speed_ = 1.f;
+        glide_rate_ = 0.f;
+        gliding_ = false;
         reverse_ = false;
         if(!Active())
             play_reverse_ = false;
@@ -71,6 +73,15 @@ namespace chompi
 
     void Voice::Render(float *l, float *r, size_t n)
     {
+        if(gliding_)
+        {
+            speed_ += (next_speed_ - speed_) * (glide_rate_ > 0.f ? std::min(1.f, n * glide_rate_) : 1.f);
+            if(fabsf(next_speed_ - speed_) < 1e-4f)
+            {
+                speed_ = next_speed_;
+                gliding_ = false;
+            }
+        }
         Block();
         if(running_ && !use_ram_)
             stream_->speed = inc_;

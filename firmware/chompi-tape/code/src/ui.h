@@ -313,13 +313,13 @@ namespace chompi
         FileStreamingManager* manager;
         FIL fptr_pre;
         char fname[32];
-        static const size_t kPreFileSize = 16384;
+        static const size_t kPreFileSize = 24576; // room for the legato and glide settings
         char presets_file[kPreFileSize];
 
         // pitch, start, end, att, decay, autoloop, sustainactive, gain, pan
         const float defaults[PresetManager::kMaxControls] = {enc_defaults[0][0], enc_defaults[0][1], enc_defaults[0][2],
                                                              enc_defaults[1][1], enc_defaults[1][2], 1.f, 1.f,
-                                                             enc_defaults[1][0], .5f};
+                                                             enc_defaults[1][0], .5f, 0.f, 0.f};
 
         // Main reads presets.json with the card and applies it with the options from the UI's tick, so a recall
         // never reads a preset half written. A write under way is dropped; the card's copy wins.

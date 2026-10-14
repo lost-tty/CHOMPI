@@ -4,7 +4,6 @@
 
 #include <stdint.h>
 #include "Arp.h"
-#include "Hold.h"
 
 namespace chompi
 {
@@ -12,41 +11,12 @@ namespace chompi
     class ArpKnob
     {
       public:
-        void Init()
-        {
-            hold_.Init();
-            turned_ = false;
-            ticks_ = 0;
-        }
-
-        // true for a click that turns the page
-        bool Click(bool down, uint32_t now)
-        {
-            if(!down)
-                return hold_.Release();
-            hold_.Press(now);
-            turned_ = false;
-            return false;
-        }
-
-        // while the arp page shows
-        void Update(uint32_t now)
-        {
-            if(hold_.Held(now))
-                arp.SetLatch(!arp.Latched());
-        }
-
-        void Lost() { hold_.Lost(); }
-
-        void Turn(int turns, bool shift)
+        void Init() { ticks_ = 0; }
+        void Latch() { arp.SetLatch(!arp.Latched()); }
+        // press: turned while pressed
+        void Turn(int turns, bool shift, bool press)
         {
             const int dir = turns > 0 ? 1 : -1;
-            const bool press = hold_.Down();
-            if(press)
-            {
-                turned_ = true;
-                hold_.Cancel();
-            }
             if(!shift && !press && arp.Note() == Arp::kFree && (dir > 0 || arp.Slow() > 0.f))
             {
                 arp.SetSlow(arp.Slow() + dir * .025f);
@@ -68,7 +38,7 @@ namespace chompi
             arp.SetLatch(false);
         }
 
-        void Led(bool shift, uint32_t now, float &r, float &g, float &b) const
+        void Led(bool shift, bool pattern, uint32_t now, float &r, float &g, float &b) const
         {
             static const float kNoteColors[Arp::kNotes][3] = {
                 {0.f, 1.f, 0.f}, {1.f, .95f, .05f}, {1.f, .6f, .24f}, {1.f, .36f, .62f},
@@ -81,7 +51,6 @@ namespace chompi
             static const float kWhite[3] = {1.f, 1.f, 1.f};
 
             const int n = arp.Note();
-            const bool pattern = hold_.Down() && turned_;
             const float* c = pattern ? kPatternColors[arp.Pattern()] : n >= 0 && n < Arp::kNotes ? kNoteColors[n] : kWhite;
             float k = shift ? arp.Octaves() / 3.f : pattern ? 1.f : n < 0 ? .1f : n < Arp::kNotes ? 1.f : 1.f - .8f * arp.Slow();
             if(shift)
@@ -103,8 +72,6 @@ namespace chompi
             return true;
         }
 
-        Hold hold_;
-        bool turned_;
         int8_t ticks_;
     };
 

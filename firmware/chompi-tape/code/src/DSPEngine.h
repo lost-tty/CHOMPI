@@ -9,6 +9,7 @@
 #include "Streamer.h"
 #include "LooperEngine.h"
 #include "Onset.h"
+#include "Keys.h"
 #include "daisysp.h"
 #include "DJFilter.h"
 #include "Warble.h"
@@ -185,6 +186,9 @@ namespace daisy
         {
             voice_mode = VoiceMode::JAMMI;
             latest_voice = 0;
+            keys_.Clear();
+            legato_ = false;
+            glide_ = 0.f;
 
             input_env_follower.Init();
             output_env_follower.Init();
@@ -940,6 +944,7 @@ namespace daisy
 
             for(size_t i = 0; i < kMaxPoly; i++)
                 playing_key[i] = 0;
+            keys_.Clear();
         }
 
         /** @brief Voice stealing algorithm.
@@ -955,6 +960,13 @@ namespace daisy
             const int slice = kit ? chompi::slot_loader.Slice(int(transpose_nn) + 12) : -1;
             if(kit && slice < 0)
                 return;
+            const int legato = LegatoVoice();
+            if(legato >= 0)
+            {
+                playing_key[legato] = key;
+                chompi_voice[legato].Retune(MidiNoteToPlaybackRatio(transpose_nn));
+                return;
+            }
 
             /** Is this key already playing? In JAMMI a tail still sounding keeps its voice */
             int free_idx = -1;
@@ -1078,10 +1090,18 @@ namespace daisy
                 chompi_voice[free_idx].SetVarispeed(1.f);
 
             chompi_voice[free_idx].StartPlaying();
+            latest_voice = free_idx;
         }
 
         void StopPlayback(int key)
         {
+            const int legato = LegatoVoice();
+            if(legato >= 0 && playing_key[legato] == key && keys_.Count()) // back to the key still held
+            {
+                playing_key[legato] = keys_.Last().key;
+                chompi_voice[legato].Retune(MidiNoteToPlaybackRatio(keys_.Last().nn));
+                return;
+            }
             for(size_t i = 0; i < kMaxPoly; i++)
             {
                 if(playing_key[i] == key && !chompi_voice[i].IsKit()) // a kit slice plays to its end
@@ -1101,6 +1121,7 @@ namespace daisy
 
                 if (req.type_ == KeyRequest::Type::START)
                 {
+                    keys_.Press(req.key_, req.transpose_nn_, req.vel_);
                     if(allowed && (chompi::arp.On() || chompi::arp.Latched()))
                         chompi::arp.Hold(req.key_, req.transpose_nn_, req.vel_);
                     if(!allowed || !chompi::arp.On())
@@ -1108,6 +1129,7 @@ namespace daisy
                 }
                 else if (req.type_ == KeyRequest::Type::STOP)
                 {
+                    keys_.Release(req.key_);
                     const bool kept = chompi::arp.Release(req.key_) && chompi::arp.Latched();
                     if(!kept && chompi::arp.Playing() != req.key_)
                         StopPlayback(req.key_);
@@ -2074,6 +2096,23 @@ namespace daisy
 
         bool ArpAllowed() { return voice_mode == VoiceMode::JAMMI && !KitSelected() && !input_monitor; }
 
+        // legato: a key pressed while another is held retunes its voice instead of starting one, over the glide
+        void SetLegato(bool on) { legato_ = on; }
+        bool Legato() const { return legato_; }
+        float Glide() const { return glide_; }
+        void SetGlide(float v) // 0..1
+        {
+            glide_ = v;
+            for(size_t i = 0; i < kMaxPoly; i++)
+                chompi_voice[i].SetGlide(v * v * kGlideMax);
+        }
+        // the voice the keys down share while one is held; else none
+        int LegatoVoice() const
+        {
+            const bool on = legato_ && voice_mode == VoiceMode::JAMMI && !aiff_slot_ && !chompi::arp.On();
+            return on && chompi_voice[latest_voice].IsHeld() ? int(latest_voice) : -1;
+        }
+
         // the JAMMI slot plays an .aif
         bool AiffSelected() { return voice_mode == VoiceMode::JAMMI && aiff_slot_; }
         bool KitSelected() { return AiffSelected() && chompi::slot_info.kit; }
@@ -2105,6 +2144,8 @@ namespace daisy
             SetAutoLoop(p.autoloop);
             SetSustainActive(p.sustain);
             SetPan(p.pan);
+            SetLegato(p.legato);
+            SetGlide(p.glide);
             const float pitch = KnobPitch(p.pitch);
             SetGlobalPitch(fabsf(pitch));
             SetReverse(pitch < 0.f);
@@ -2375,6 +2416,10 @@ namespace daisy
         size_t rec_mark_ = 0;                            // ring samples at the press
         size_t rec_pre_ = 0, rec_start_ = 0, rec_post_ = 0;
         int playing_key[kMaxPoly];
+        static constexpr float kGlideMax = 2.f; // s
+        chompi::Keys keys_;
+        bool legato_;
+        float glide_;
 
         VoiceMode voice_mode;
 

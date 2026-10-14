@@ -8,6 +8,7 @@
 #include "Clock.h"
 #include "Hold.h"
 #include "Audition.h"
+#include "PressKnob.h"
 #include "Onset.h"
 
 namespace chompi
@@ -166,6 +167,7 @@ namespace chompi
 
             transport_hold.Init();
             rec_hold.Init();
+            pitch_press_.Init();
             magic_hold.Init();
 
             for (int knob = 0; knob < 6; knob++)
@@ -239,8 +241,34 @@ namespace chompi
             if(knob_page[0] == 2 && !fx_->ArpAllowed())
                 knob_page[0] = 0;
 
-            if(knob_page[0] == 2)
-                arp_knob.Update(now);
+            if(pitch_press_.Held(now)) // the left knob held: the arp's latch, or legato on the pitch page
+
+
+            {
+
+
+                if(knob_page[0] == 2)
+
+
+                    arp_knob.Latch();
+
+
+                else if(knob_page[0] == 0)
+
+
+                {
+
+
+                    fx_->SetLegato(!fx_->Legato());
+
+
+                    DumpValuePresets();
+
+
+                }
+
+
+            }
             const Audition::Event audition_event = audition.Update(now);
             AuditionEvent(audition_event, audition.What());
             if(knob_page[3] == 0 && magic_hold.Held(now)) // the reverb page, where it shows
@@ -401,9 +429,14 @@ namespace chompi
                         if(t > 0.f && fx_->GetVUSample(VUTarget::VU_INPUT) >= t * t * t)
                             g = b = 0.f;
                     }
-                    else if(page == 0) // speed
+                    else if(page == 0) // speed; pressed: legato, turned: glide
                     {
-                        speed_color(enc_values[0][0], r, g, b);
+                        if(pitch_press_.Turned())
+                            b = .2f + .8f * fx_->Glide();
+                        else if(pitch_press_.Down())
+                            r = g = b = fx_->Legato() ? 1.f : .15f;
+                        else
+                            speed_color(enc_values[0][0], r, g, b);
                     }
                     else if(page == 1) // gain
                     {
@@ -414,7 +447,7 @@ namespace chompi
                         fx_->SetGain(value);
                     }
                     else
-                        arp_knob.Led(false, now, r, g, b);
+                        arp_knob.Led(false, pitch_press_.Turned(), now, r, g, b);
 
                     leds.ui.Pth(1, r, g, b);
                 }
@@ -834,7 +867,7 @@ namespace chompi
                 break;
 
             case static_cast<uint16_t>(Hardware::SwId::ENC_4_SW):
-                if(arp_knob.Click(rising, System::GetNow()))
+                if(pitch_press_.Click(rising, System::GetNow()))
                     knob_page[0] = (knob_page[0] + 1) % (fx_->ArpAllowed() ? knob_num_pages[0] : 2);
                 break;
 
@@ -1137,7 +1170,13 @@ namespace chompi
             if(encoderID == 0 && page == 2)
             {
                 if(stepsPerRevolution == 0)
-                    arp_knob.Turn(turns, false);
+                    arp_knob.Turn(turns, false, pitch_press_.Turning());
+                return true;
+            }
+            if(encoderID == 0 && page == 0 && stepsPerRevolution == 0 && pitch_press_.Turning()) // glide
+            {
+                fx_->SetGlide(fclamp(fx_->Glide() + (turns > 0 ? kGlideStep : -kGlideStep), 0.f, 1.f));
+                DumpValuePresets();
                 return true;
             }
 
@@ -1249,7 +1288,7 @@ namespace chompi
         {
             transport_hold.Lost();
             magic_hold.Lost();
-            arp_knob.Lost();
+            pitch_press_.Lost();
             if(audition.On())
                 AuditionEvent(Audition::Event::kStop, audition.What());
             audition.Turn(0, System::GetNow());
@@ -1299,6 +1338,8 @@ namespace chompi
         bool switch_state = false;
         bool chompi_key_pressed = false;
         Audition audition;
+        PressKnob pitch_press_;
+        static constexpr float kGlideStep = .05f;
         int8_t transport_turns = 0;
         Hold transport_hold, magic_hold;
         uint32_t transport_flash = 0;

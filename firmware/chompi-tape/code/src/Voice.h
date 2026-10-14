@@ -55,6 +55,13 @@ namespace chompi
 
         // speed: for the next note, while one plays
         void SetVarispeed(float speed);
+        // legato: the note under way goes to speed, over the glide
+        void Retune(float speed)
+        {
+            next_speed_ = speed;
+            gliding_ = true;
+        }
+        void SetGlide(float seconds) { glide_rate_ = seconds > 0.f ? 1.f / (seconds * sr_) : 0.f; }
         void SetGlobalPitch(float speed) { pitch_ = speed; }
         float GetGlobalPitch() const { return pitch_; }
 
@@ -148,7 +155,8 @@ namespace chompi
         float start_, end_;
         uint32_t from_;
         bool reverse_, play_reverse_, auto_loop_;
-        float speed_, next_speed_, pitch_;
+        float speed_, next_speed_, pitch_, glide_rate_;
+        bool gliding_;
         float sr_;
 
         std::atomic<Action> pending_; // set from the UI and the audio

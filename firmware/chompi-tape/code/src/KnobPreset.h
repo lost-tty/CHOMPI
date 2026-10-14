@@ -15,6 +15,7 @@ namespace chompi
     }
     inline PresetManager::Preset PresetFromKnobs(float **enc, daisy::Engine &fx)
     {
-        return {enc[0][0], fx.SamplePoint(0), fx.SamplePoint(1), enc[1][1], enc[1][2], enc[1][0], fx.GetPan(), fx.GetAutoLoop(), fx.GetSustainActive()};
+        return {enc[0][0], fx.SamplePoint(0), fx.SamplePoint(1), enc[1][1], enc[1][2], enc[1][0], fx.GetPan(),
+                fx.Glide(), fx.GetAutoLoop(), fx.GetSustainActive(), fx.Legato()};
     }
 }

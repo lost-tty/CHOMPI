@@ -56,20 +56,23 @@ class PresetManager
     static constexpr int kMaxModes = 2; // jammi, cubbi
     static constexpr int kMaxBanks = 5; // a, b, c, d, e
     static constexpr int kMaxSlots = 14; // 1, 2, 3, etc.
-    static constexpr int kMaxControls = 9; // pitch, start, end, att, decay, autoloop, sustainactive, gain, pan
-    enum Control { kPitch, kStart, kEnd, kAttack, kDecay, kAutoloop, kSustain, kGain, kPan };
+    static constexpr int kMaxControls = 11;
+    // The first nine are the slot's array in the file, as the TAPE firmware reads it.
+    static constexpr int kFileControls = 9;
+    // A slot's values in the file's order; legato and glide sit in the settings object, under the slot's name.
+    enum Control { kPitch, kStart, kEnd, kAttack, kDecay, kAutoloop, kSustain, kGain, kPan, kLegato, kGlide };
     // Holds one slot's settings.
     struct Preset
     {
-        float pitch, start, end, attack, decay, gain, pan;
-        bool autoloop, sustain;
+        float pitch, start, end, attack, decay, gain, pan, glide;
+        bool autoloop, sustain, legato;
     };
     // Returns the slot's preset, or the defaults for a slot without one.
     Preset Recall(size_t mode, size_t bank, size_t slot)
     {
         const float *v = IsValid(mode, bank, slot) ? Values(mode, bank, slot) : defaults_;
-        return {v[kPitch], v[kStart], v[kEnd], v[kAttack], v[kDecay], v[kGain], v[kPan],
-                v[kAutoloop] > .5f, v[kSustain] > .5f};
+        return {v[kPitch], v[kStart], v[kEnd], v[kAttack], v[kDecay], v[kGain], v[kPan], v[kGlide],
+                v[kAutoloop] > .5f, v[kSustain] > .5f, v[kLegato] > .5f};
     }
     void Store(size_t mode, size_t bank, size_t slot, const Preset &p)
     {
@@ -83,8 +86,10 @@ class PresetManager
         v[kDecay] = p.decay;
         v[kGain] = p.gain;
         v[kPan] = p.pan;
+        v[kGlide] = p.glide;
         v[kAutoloop] = float(p.autoloop);
         v[kSustain] = float(p.sustain);
+        v[kLegato] = float(p.legato);
         if(slot == 15)
             chompi_valid = true;
         else
@@ -127,7 +132,7 @@ class PresetManager
                     sprintf(append,"[");
                     StrAppend(buffer, append);
 
-                    for(int ctrl = 0; ctrl < kMaxControls; ctrl++)
+                    for(int ctrl = 0; ctrl < kFileControls; ctrl++)
                     {
                         sprintf(append, "%.5f,", double(values[mode][bank][slot][ctrl]) * 1000); // as fine as the float
                         StrAppend(buffer, append);
@@ -157,7 +162,22 @@ class PresetManager
 
         strcpy(append, PRE_VERSION);
         StrAppend(buffer, append);
-        sprintf(append, ",{\"volume\":%.5f}", double(volume) * 1000);
+        sprintf(append, ",{\"volume\":%.5f,\"slots\":{", double(volume) * 1000);
+        StrAppend(buffer, append);
+        bool first = true;
+        for(int mode = 0; mode < kMaxModes; mode++)
+            for(int bank = 0; bank < kMaxBanks; bank++)
+                for(int slot = 0; slot < kMaxSlots; slot++)
+                {
+                    const float *v = values[mode][bank][slot];
+                    if(!values_valid[mode][bank][slot] || (v[kLegato] < .5f && v[kGlide] <= 0.f))
+                        continue;
+                    sprintf(append, "%s\"%s-%c-%d\":{\"legato\":%d,\"glide\":%.3f}", first ? "" : ",", ModeName(mode),
+                            'a' + bank, slot + 1, v[kLegato] > .5f, double(v[kGlide]));
+                    StrAppend(buffer, append);
+                    first = false;
+                }
+        strcpy(append, "}}");
         StrAppend(buffer, append);
         strcpy(append, "]"),
         StrAppend(buffer, append);
@@ -186,13 +206,21 @@ class PresetManager
             json_res = JSON_Search(
                 buffer, len, query, strlen(query), &value, &value_len);
 
-            uint8_t numcontrols = kMaxControls;
+            uint8_t numcontrols = kFileControls;
             if(json_res != JSONSuccess) // V1
                 numcontrols = 7;
 
             sprintf(query, "[3].volume");
             if(JSON_Search(buffer, len, query, strlen(query), &value, &value_len) == JSONSuccess)
                 volume = std::max(0., std::min(1., atof(value) / 1000.));
+            char *slots = nullptr;
+            size_t slots_len = 0;
+            sprintf(query, "[3].slots");
+            if(JSON_Search(buffer, len, query, strlen(query), &value, &value_len) == JSONSuccess)
+            {
+                slots = value;
+                slots_len = value_len;
+            }
 
             /** Get module presets */
             for(int mode = 0; mode < kMaxModes; mode++){
@@ -226,6 +254,15 @@ class PresetManager
                                 }
                             }
                             values_valid[mode][bank][slot] = true;
+                            if(slots)
+                            {
+                                sprintf(query, "%s-%c-%d.legato", ModeName(mode), 'a' + bank, slot + 1);
+                                if(JSON_Search(slots, slots_len, query, strlen(query), &value, &value_len) == JSONSuccess)
+                                    values[mode][bank][slot][kLegato] = atoi(value) != 0;
+                                sprintf(query, "%s-%c-%d.glide", ModeName(mode), 'a' + bank, slot + 1);
+                                if(JSON_Search(slots, slots_len, query, strlen(query), &value, &value_len) == JSONSuccess)
+                                    values[mode][bank][slot][kGlide] = std::max(0., std::min(1., atof(value)));
+                            }
                         }
                         else
                         {
@@ -338,6 +375,7 @@ class PresetManager
         buffer[len + app_len] = '\0';
     }
 
+    static const char *ModeName(int mode) { return mode ? "cubbi" : "jammi"; }
 
         bool updated;
         const float* defaults_;
