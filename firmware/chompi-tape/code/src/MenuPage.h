@@ -355,6 +355,7 @@ namespace chompi
                 leds.ui.Smt(led_sel, pink[0], .7f * pink[1], .7f * pink[2]);
 
             // white keys
+            const float target = !blink_state;
             for (uint8_t i = 1; i < 16; i++)
             {
                 if(card_gone_)
@@ -364,11 +365,11 @@ namespace chompi
                 else if(preset_mode == PresetMode::SAVE_SEL && i == 15)
                     leds.ui.Smt(25 - i, pink[0], pink[1], pink[2]);
                 else if(ss_bank == fx_->GetBank() && selected_slot == i && preset_mode == PresetMode::SAVE_SEL && fx_->GetVoiceMode() == ss_mode)
-                    leds.ui.Smt(25 - i, blue[0], blue[1], blue[2]);
+                    leds.ui.Smt(25 - i, target * blue[0], target * blue[1], target * blue[2]);
                 else if(ss_bank == fx_->GetBank() && selected_slot == i && preset_mode == PresetMode::ERASE_SEL && fx_->GetVoiceMode() == ss_mode)
-                    leds.ui.Smt(25 - i, red[0], red[1], red[2]);
+                    leds.ui.Smt(25 - i, target * red[0], target * red[1], target * red[2]);
                 else if(ss_bank == fx_->GetBank() && selected_slot == i && preset_mode == PresetMode::COPY_DEST && fx_->GetVoiceMode() == ss_mode)
-                    leds.ui.Smt(25 - i, blue[0], blue[1], blue[2]);
+                    leds.ui.Smt(25 - i, target * blue[0], target * blue[1], target * blue[2]);
                 else if( (ss_bank == fx_->GetBank() && selected_slot == i && preset_mode == PresetMode::COPY_SRC && fx_->GetVoiceMode() == ss_mode)
                             || (cs_bank == fx_->GetBank() && copy_src == i && preset_mode == PresetMode::COPY_DEST && fx_->GetVoiceMode() == cs_mode) )
                     leds.ui.Smt(25 - i, green[0], green[1], green[2]);
