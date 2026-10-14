@@ -54,9 +54,9 @@ class PresetManager
         updated = true;
     }
 
-    static constexpr size_t kFileSize = 24576; // bytes
     static constexpr int kMaxModes = 2; // jammi, cubbi
     static constexpr int kMaxBanks = kNumBanks;
+    static constexpr size_t kFileSize = (kMaxBanks + 1) * 4096; // bytes
     static constexpr int kMaxSlots = 14; // 1, 2, 3, etc.
     static constexpr int kMaxControls = 11;
     // The first nine are the slot's array in the file, as the TAPE firmware reads it.
@@ -425,5 +425,6 @@ class PresetManager
         bool updated;
         const float* defaults_;
 };
+extern char presets_file[PresetManager::kFileSize];
 } // namespace chompi
 #pragma GCC pop_options

@@ -49,6 +49,7 @@ uint8_t DSY_SDRAM_BSS __attribute__((aligned(32))) stream_cache[kStreamBlocks * 
 int16_t DSY_SDRAM_BSS stream_rings[kStreams * 2 * Ring::kFrames * 2];
 uint8_t DSY_SDRAM_BSS __attribute__((aligned(32))) copy_in[SdDma::kBuffer];
 uint8_t DSY_SDRAM_BSS __attribute__((aligned(32))) copy_out[SdDma::kBuffer];
+char DSY_SDRAM_BSS __attribute__((aligned(32))) chompi::presets_file[PresetManager::kFileSize];
 chompi::InterpolatedDelayLine::AudioSample DSY_SDRAM_BSS del_mem[kMaxDelayTime];
 Grains DSY_DTCMRAM_BSS chompi::grains;
 Grains::Frame DSY_SDRAM_BSS grain_mem[Grains::kFrames];

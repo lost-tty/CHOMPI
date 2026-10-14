@@ -300,7 +300,6 @@ namespace chompi
         FileStreamingManager* manager;
         FIL fptr_pre;
         char fname[32];
-        char presets_file[PresetManager::kFileSize];
 
         const float defaults[PresetManager::kMaxControls] = {enc_defaults[0][0], enc_defaults[0][1], enc_defaults[0][2],
                                                              enc_defaults[1][1], enc_defaults[1][2], 1.f, 1.f,
@@ -351,79 +350,65 @@ namespace chompi
         }
 
         uint32_t file_len = 0;
-        uint8_t write_stage = 0;
+        enum class WriteStage
+        {
+            IDLE,
+            OPEN,
+            WRITE,
+            RENAME,
+        };
+        WriteStage write_stage = WriteStage::IDLE;
         // for some reason this causes clicking if you optimize it higher than this...
         void TestPresets()
         {
             if(card_pending_) // the buffer holds the card's file until it is parsed
                 return;
-            if(write_stage == 0) // start chunked write
-            {
-                PresetManager::Result res = presets_manager->WriteWholeFile(presets_file, PresetManager::kFileSize);
-                if(res == PresetManager::Result::OK)
-                {
-                    write_stage = 1;
-                }    
-            }
+            if(write_stage == WriteStage::IDLE
+               && presets_manager->WriteWholeFile(presets_file, PresetManager::kFileSize) == PresetManager::Result::OK)
+                write_stage = WriteStage::OPEN;
         }
 
         // The card goes: drops a write under way; the next change writes anew.
         void DropPresetsWrite()
         {
-            if(write_stage >= 2)
+            if(write_stage == WriteStage::WRITE || write_stage == WriteStage::RENAME)
                 f_close(&fptr_pre);
-            write_stage = 0;
+            write_stage = WriteStage::IDLE;
         }
 
         void WritePresets() __attribute__((optimize("-O0")))
         {
-            if(write_stage == 0)
+            switch(write_stage)
             {
-                // do nothing
-            }
-            else if(write_stage == 1)
-            {
-                file_len = strlen(presets_file);
-
-                char name[32];
-                strcpy(name, "presets_temp.json");
-                f_open(&fptr_pre, name, (FA_OPEN_ALWAYS | FA_WRITE | FA_READ));
-
-                f_lseek(&fptr_pre, 0);
-
-                write_stage = 2;
-            }
-            else if(f_tell(&fptr_pre) < file_len && write_stage == 2) // write the next chunk
-            {
-                uint32_t write_size = kMaxFileWriteChunkSize;
-                if(f_tell(&fptr_pre) + write_size >= file_len)
-                    write_size = file_len - f_tell(&fptr_pre);
-
-                if(f_write(&fptr_pre, &presets_file[f_tell(&fptr_pre)], write_size, nullptr) != FR_OK)
+                case WriteStage::IDLE:
+                    break;
+                case WriteStage::OPEN:
+                    file_len = strlen(presets_file);
+                    f_open(&fptr_pre, "presets_temp.json", (FA_OPEN_ALWAYS | FA_WRITE | FA_READ));
+                    f_lseek(&fptr_pre, 0);
+                    write_stage = WriteStage::WRITE;
+                    break;
+                case WriteStage::WRITE:
                 {
-                    DropPresetsWrite();
-                    return;
+                    const uint32_t at = f_tell(&fptr_pre);
+                    const uint32_t size = std::min(kMaxFileWriteChunkSize, file_len - at);
+                    if(f_write(&fptr_pre, &presets_file[at], size, nullptr) != FR_OK)
+                    {
+                        DropPresetsWrite();
+                        return;
+                    }
+                    f_sync(&fptr_pre);
+                    if(f_tell(&fptr_pre) >= file_len)
+                        write_stage = WriteStage::RENAME;
+                    break;
                 }
-                f_sync(&fptr_pre);
-
-                if(f_tell(&fptr_pre) >= file_len)
-                    write_stage = 3;
-            }
-            else if(write_stage == 3)
-            {
-                f_truncate(&fptr_pre);
-                f_sync(&fptr_pre);
-
-                char from[32];
-                char to[32];
-
-                strcpy(from, "presets_temp.json");
-                strcpy(to, "presets.json");
-
-                f_unlink(to);
-                f_rename(from, to);
-
-                write_stage = 0;
+                case WriteStage::RENAME:
+                    f_truncate(&fptr_pre);
+                    f_sync(&fptr_pre);
+                    f_unlink("presets.json");
+                    f_rename("presets_temp.json", "presets.json");
+                    write_stage = WriteStage::IDLE;
+                    break;
             }
         }
 
