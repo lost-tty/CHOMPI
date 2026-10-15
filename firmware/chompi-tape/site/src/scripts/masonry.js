@@ -1,6 +1,6 @@
 // masonry: each card goes into the shortest column, in order
 // [container, card selector, narrowest column px, gap px, most columns]
-const boxes = [['.feats', '.feat', 440, 24, 9], ['.overview', ':scope > div', 180, 48, 3]];
+const boxes = [['.overview', ':scope > div', 180, 48, 3]];
 for (const [sel, item, min, gap, max] of boxes) for (const box of document.querySelectorAll(sel)) {
   const cards = [...box.querySelectorAll(item)];
   let count = 0;

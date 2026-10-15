@@ -24,6 +24,18 @@ export const usage = [
       '<b>Hold</b>: this section becomes 1×'],
   },
   {
+    id: 'loopedit', title: 'Loop edit', colour: 'yellow', keys: ['SHIFT', '+', 'PLAY', '+', 'LOOP'],
+    panel: { hl: ['shift', 'play', 'loop', 'knob1', 'knob2'],
+      labels: { shift: ['hold', 0, -90], knob1: ['start', -1, -90], knob2: ['end', 1, -90] },
+      wave: [.7, .45, .3, .8, .55, .35, .25, .75, .5, .3, .2, .65, .4, .25, .15] },
+    items: ['<b>SHIFT + PLAY + LOOP</b>: in and out',
+      '<b>START / END</b>: cut the loop',
+      'The white keys draw the waveform, left to right, brighter where the loop is loud',
+      'START jumps to the nearest hit',
+      'With a clock, END moves in 16ths',
+      'Keys and FX are off in edit mode'],
+  },
+  {
     id: 'bake', title: 'Bake FX', colour: 'magenta', keys: ['SHIFT', '+', 'LOOP', '_hold'],
     panel: { hl: ['shift', 'loop'], leds: { loop: LED.magenta }, labels: { shift: ['hold', 0, -90], loop: ['hold', 0, -90] } },
     diagram: { type: 'flow', steps: [['FX ON'], ['BAKING', LED.magenta], ['FX RESET']] },
@@ -38,6 +50,13 @@ export const usage = [
     items: ['Undoes the last <b>overdub</b> or <b>bake</b>',
       '<b>Hold again</b>: redo',
       'Play LED <b>red</b> flash: nothing to undo'],
+  },
+  {
+    id: 'trim', title: 'Trim a sample', colour: 'orange', keys: ['START', '_/', 'END', '_turn in CHOMPI mode'],
+    panel: { hl: ['knob1', 'knob2'], labels: { knob1: ['start', -1, -90], knob2: ['end', 1, -90] },
+      wave: [.12, .95, .7, .5, .35, .22, .85, .6, .4, .28, .18, .6, .38, .2, .08] },
+    items: ['The white keys draw the waveform, left to right, brighter where the sample is loud',
+      'START jumps to the nearest hit'],
   },
   {
     id: 'mono', title: 'Line in mono', colour: 'red', keys: ['SHIFT', '+', 'LINE IN', '_hold'],
@@ -61,9 +80,12 @@ export const usage = [
       '<b>Hold</b>: time signature, 4/4, 3/4, 6/8, 5/4, 7/4',
       '<b>Turn</b>: tempo',
       'Syncs to MIDI clock (TRS or USB)',
-      'First loop snaps to the beat',
-      'Delay syncs to the beat once either is on',
-      '<b>SHIFT + FX knob</b>: note values, 1/16 to 1/2'],
+      'First loop snaps to the beat'],
+  },
+  {
+    id: 'delay', title: 'Synced delay', colour: 'pink', keys: ['SHIFT', '+', 'FX KNOB', '_turn'],
+    items: ['The delay syncs to the beat once the metronome or MIDI clock is on',
+      '<b>SHIFT + FX knob</b>: note value, 1/16 to 1/2'],
   },
   {
     id: 'grains', title: 'Grains', colour: 'magenta', keys: ['FX KNOB', '_turn or hold'],
@@ -81,7 +103,14 @@ export const usage = [
     diagram: { type: 'flow', steps: [['WAITING', 'vu'], ['LOUD'], ['RECORDING', LED.red]], blink: true },
     items: ['<b>Left knob</b>: threshold, fully down is off',
       'Knob LED <b>red</b>: input above it',
-      'Above zero, CHOMPI latches: <b>tap again</b> to stop'],
+      'Above zero, CHOMPI latches: <b>tap again</b> to stop',
+      'In CHOMPI mode the FX and the arp are off'],
+  },
+  {
+    id: 'legato', title: 'Legato and glide', colour: 'orange', keys: ['LEFT KNOB', '_hold, or press + turn'],
+    panel: { hl: ['knob0'], labels: { knob0: ['hold / turn', 0, -90] } },
+    items: ['On the pitch page, <b>hold</b>: legato on/off',
+      '<b>Press + turn</b>: glide, up to 2 s'],
   },
   {
     id: 'kits', title: 'OP-1 drum kits', colour: 'teal', keys: ['START', '_/', 'END', '_turn'],
@@ -96,9 +125,10 @@ export const usage = [
 // the sections, as in the overview
 const card = Object.fromEntries(usage.map((c) => [c.id, c]));
 export const groups = [
-  ['Looper', ['transport', 'length', 'step', 'undo', 'bake', 'copy', 'tempo']],
-  ['Sampling', ['threshold', 'mono']],
-  ['Effects', ['grains']],
+  ['Looper', ['transport', 'length', 'step', 'loopedit', 'undo', 'bake', 'copy', 'tempo']],
+  ['Sampling', ['threshold', 'trim', 'mono']],
+  ['Keys', ['legato']],
+  ['Effects', ['delay', 'grains']],
   ['Drum kits', ['kits']],
 ].map(([title, ids]) => ({ title, cards: ids.map((id) => card[id]) }));
 

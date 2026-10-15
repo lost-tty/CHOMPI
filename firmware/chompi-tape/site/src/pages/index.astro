@@ -12,6 +12,9 @@ const sha = process.env.FIRMWARE_SHA ?? 'dev';
 const date = process.env.FIRMWARE_DATE ?? '';
 const file = `CHOMPI_MIXTAPE_${sha}.bin`;
 const kb = fs.existsSync(`public/${file}`) ? Math.round(fs.statSync(`public/${file}`).size / 1024) : 0;
+// the side menu: each section and its cards
+const nav = [...groups.map(({ title, cards }) => ({ title, id: `${title}-head`, cards })),
+  { title: 'Arpeggiator', id: 'arp-head', cards: arp }, { title: 'USB', id: 'usb-head', cards: usb }];
 ---
 <!doctype html>
 <html lang="en">
@@ -43,6 +46,7 @@ const kb = fs.existsSync(`public/${file}`) ? Math.round(fs.statSync(`public/${fi
           <ul>
             <li><a href="#length">Double or halve the loop length</a></li>
             <li><a href="#step">Step through the sections of a halved loop</a></li>
+            <li><a href="#loopedit">Cut the loop by hand with START and END</a></li>
             <li><a href="#undo">Undo and redo the last overdub or FX bake</a></li>
             <li><a href="#bake">Bake the FX into the loop</a></li>
             <li><a href="#copy">Queue a saved loop to start at the end of the current pass, or append it</a></li>
@@ -54,12 +58,19 @@ const kb = fs.existsSync(`public/${file}`) ? Math.round(fs.statSync(`public/${fi
           <ul>
             <li><a href="#threshold">Recording threshold: sampling starts when the input gets loud enough</a></li>
             <li><a href="#mono">Mono line in: a mono cable plays on both channels</a></li>
+            <li><a href="#trim">Trim a sample, and hear the point and the seam</a></li>
+          </ul>
+        </div>
+        <div>
+          <h3>Keys</h3>
+          <ul>
+            <li><a href="#legato">Legato and glide, saved per slot</a></li>
           </ul>
         </div>
         <div>
           <h3>Effects</h3>
           <ul>
-            <li><a href="#tempo">Delay syncs to the beat once the metronome or MIDI clock is on</a></li>
+            <li><a href="#delay">Delay syncs to the beat once the metronome or MIDI clock is on</a></li>
             <li><a href="#grains">Grains past full reverb, hold the knob to freeze</a></li>
           </ul>
         </div>
@@ -92,9 +103,20 @@ const kb = fs.existsSync(`public/${file}`) ? Math.round(fs.statSync(`public/${fi
         <p>Copy the file onto the SD card, remove any other <code>.bin</code> and power on. The LEDs show a slow rainbow while it installs.</p>
         <p>To go back, do the same with <code>CHOMPI_TAPEv2_0.bin</code>.</p>
         <p>Samples and settings live in <code>/MIXTAPE</code>, else <code>/TAPE</code>, else the card root.</p>
+        <p>CHOMPI plays from power-on while it reads the card. Pull the card while playing and the sample in memory and the loop play on; put one back and CHOMPI reads it again.</p>
       </div>
     </section>
 
+    <div class="with-nav">
+    <nav class="side" aria-label="Features">
+      {nav.map(({ title, id, cards }) => (
+        <div>
+          <a class="side-head" href={`#${id}`}>{title}</a>
+          <ul>{cards.map((card) => <li><a href={`#${card.id}`}>{card.title}</a></li>)}</ul>
+        </div>
+      ))}
+    </nav>
+    <div class="sections">
     {groups.map(({ title, cards }) => (
       <section class="usage" aria-labelledby={`${title}-head`}>
         <h2 id={`${title}-head`}>{title}</h2>
@@ -119,12 +141,14 @@ const kb = fs.existsSync(`public/${file}`) ? Math.round(fs.statSync(`public/${fi
     <section class="usage" aria-labelledby="usb-head">
       <h2 id="usb-head">USB</h2>
       <div class="lead" style="--c: var(--blue)">
-        <p>Connect CHOMPI to a computer with a USB cable. It appears as an audio interface and a MIDI device, and can hand over its SD card as a drive.</p>
+        <p>Connect CHOMPI to a computer with a USB cable. It appears as an audio interface and a MIDI device, and can hand over its SD card as a drive. A serial port named “CHOMPI log” reports errors for troubleshooting; you can ignore it.</p>
       </div>
       <div class="feats">
         {usb.map((card) => <UsageCard {...card} />)}
       </div>
     </section>
+    </div>
+    </div>
 
     <footer>Not an official CHOMPI Club release. CHOMPI is a trademark of CHOMPI Club.</footer>
   </main>

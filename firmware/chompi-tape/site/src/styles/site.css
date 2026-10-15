@@ -55,13 +55,25 @@ h2 { font: 700 28px/1.1 var(--body); letter-spacing: -.01em; margin: 0 }
 code { font: .85em var(--mono); background: var(--surface); border-radius: 3px; padding: 1px 5px }
 
 .usage { padding-top: 32px; border-top: 1px solid var(--rule); margin-inline: calc(50% - 50vw); padding-inline: 24px }
-.feats { columns: 2 440px; column-gap: 56px }
-.feats.masonry { columns: auto; gap: 56px }
+.feats { display: flex; flex-direction: column }
+.with-nav { display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: 48px; margin-inline: calc(50% - 50vw); padding-inline: 24px }
+.with-nav .usage { margin-inline: 0; padding-inline: 0 }
+.side { position: sticky; top: 24px; align-self: start; max-height: calc(100vh - 48px); overflow-y: auto; padding-top: 32px; font-size: 15px }
+.side > div { margin-bottom: 16px }
+.side-head { display: block; font-weight: 700; text-decoration: none; margin-bottom: 4px }
+.side ul { list-style: none; margin: 0; padding: 0 }
+.side li { margin-bottom: 3px }
+.side li a { color: var(--dim); text-decoration: none }
+.side a:hover { color: var(--ink); text-decoration: underline }
+.usage h2, .feat { scroll-margin-top: 16px }
 .masonry { display: flex; align-items: flex-start }
 .masonry > .col { flex: 1 1 0; min-width: 0 }
 .overview.masonry { gap: 48px }
 .overview .col { display: flex; flex-direction: column; gap: 16px }
-.feat { break-inside: avoid; margin-bottom: 48px; padding-top: 14px; border-top: 3px solid var(--c) }
+.feat { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: 16px 48px; align-items: start;
+  margin-bottom: 40px; padding-top: 16px; border-top: 3px solid var(--c) }
+.feat .txt h3 { margin-top: 0 }
+.feat .txt ul, .feat .txt p { margin-top: 0 }
 h3 { font: 700 22px/1.15 var(--body); letter-spacing: -.01em; margin: 0 0 12px; display: flex; align-items: center; gap: 10px; text-wrap: balance }
 .combo svg { height: 28px; width: auto; max-width: 100%; display: block }
 .fig { margin: 16px 0 0 }
@@ -114,6 +126,9 @@ footer { margin-top: 24px; margin-inline: calc(50% - 50vw); padding: 20px 24px; 
   border-top: 1px solid var(--rule) }
 
 @media (max-width: 800px) {
+  .feat { grid-template-columns: minmax(0, 1fr) }
+  .with-nav { grid-template-columns: minmax(0, 1fr); padding-inline: 16px }
+  .side { display: none }
   .top, .block { grid-template-columns: minmax(0, 1fr) }
   main { padding-inline: 16px }
   .usage, footer { padding-inline: 16px }

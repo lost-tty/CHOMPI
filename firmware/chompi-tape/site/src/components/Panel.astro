@@ -1,9 +1,10 @@
 ---
 // The top panel. hl: controls drawn in the section colour, leds: led -> colour,
-// labels: control -> [text, dx, dy], a callout above (dy < 0) or below the panel
+// labels: control -> [text, dx, dy], a callout above (dy < 0) or below the panel,
+// wave: a level 0..1 for each white key, lit in the section colour
 import { PW, PH, KNOBS, KNOB_LEDS, SMALL_LEDS, WHEEL, WHITE, BLACK, KEYS, POS, CW, SM, MONO, r } from '../lib/drawing.js';
 
-const { hl = [], leds = {}, labels = {} } = Astro.props;
+const { hl = [], leds = {}, labels = {}, wave } = Astro.props;
 const s = CW / PW;
 const lw = 2.2;
 const callouts = Object.entries(labels);
@@ -16,7 +17,7 @@ const on = (name) => hl.includes(name);
 const sw = (name) => r(lw * (on(name) ? 1.8 : 1));
 
 const keys = [
-  ...WHITE.map((x) => ({ x, y: 19.5, size: 17 })),
+  ...WHITE.map((x, i) => ({ x, y: 19.5, size: 17, level: wave?.[i] })),
   ...Object.entries(BLACK).map(([n, x]) => ({ x, y: 39.5, size: 15, black: true, name: { 18: 'mic', 19: 'line', 24: 'copy' }[n] })),
   ...['shift', 'play', 'loop'].map((name) => ({ x: KEYS[name][0], y: KEYS[name][1], size: KEYS[name][2], name })),
 ];
@@ -38,9 +39,10 @@ const [wx, wy, wr] = WHEEL;
     <circle class={c ? 'dot' : 'led'} cx={X(x)} cy={Y(y)} r={r((c ? 3 : 2.2) * s)} style={c && `fill: ${c}`} stroke-width={r(lw * 0.7)} />
   ))}
   <circle class:list={['knob', { hl: on('wheel') }]} cx={X(wx)} cy={Y(wy)} r={r(wr * s)} stroke-width={sw('wheel')} />
-  {keys.map(({ x, y, size, black, name }) => (
+  {keys.map(({ x, y, size, black, name, level }) => (
     <rect class:list={['key', { black, hl: on(name) }]} x={r(X(x) - size * s / 2)} y={r(Y(y) - size * s / 2)}
-          width={r(size * s)} height={r(size * s)} rx={r(1.5 * s)} stroke-width={sw(name)} />
+          width={r(size * s)} height={r(size * s)} rx={r(1.5 * s)} stroke-width={sw(name)}
+          style={level !== undefined && `fill: var(--c); fill-opacity: ${level}`} />
   ))}
   {['mic', 'line'].filter((k) => leds[k]).map((k) => (
     <circle class="dot" cx={X(KEYS[k][0])} cy={r(Y(39.5) + 4.2 * s)} r={r(1.8 * s)} style={`fill: ${leds[k]}`} stroke-width="1.2" />

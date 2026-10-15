@@ -6,10 +6,14 @@ import Diagram from './Diagram.astro';
 const { id, title, colour, keys, panel, diagram, items = [], text } = Astro.props;
 ---
 <article class="feat" id={id} style={`--c: var(--${colour})`}>
-  <h3>{title}</h3>
-  <div class="combo"><Keys keys={keys} /></div>
-  {panel && <figure class="fig"><Panel {...panel} /></figure>}
-  {diagram && <figure class="fig"><Diagram {...diagram} /></figure>}
-  {items.length > 0 && <ul>{items.map((item) => <li set:html={item} />)}</ul>}
-  {text && <p set:html={text} />}
+  <div class="pic">
+    <div class="combo"><Keys keys={keys} /></div>
+    {panel && <figure class="fig"><Panel {...panel} /></figure>}
+    {diagram && <figure class="fig"><Diagram {...diagram} /></figure>}
+  </div>
+  <div class="txt">
+    <h3>{title}</h3>
+    {items.length > 0 && <ul>{items.map((item) => <li set:html={item} />)}</ul>}
+    {text && <p set:html={text} />}
+  </div>
 </article>
