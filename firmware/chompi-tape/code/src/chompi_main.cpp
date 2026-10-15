@@ -81,8 +81,7 @@ daisysp::Oscillator osc;
 // CpuLoadMeter meter;
 uint32_t pret, sd_checkt;
 // bool log_batt;
-bool sound_up = false;  // the engine plays: the keys are live, on the SD timer's ticks until init_done
-bool init_done = false; // main runs the UI and the SD timer the card
+bool sound_up = false;
 
 FileCopier copier;
 
@@ -170,13 +169,12 @@ void DropCard()
 }
 
 // When the card is pulled while running, the RAM sample and the loop play on and nothing loads or saves.
-// The SD timer sees it go and answer again; main takes it back and reads it like at boot.
-volatile bool card_gone = false, card_answers = false;
+// The SD timer sees it go and answer again, and reads it like at boot.
+volatile bool card_gone = false;
 bool card_shown = false; // what the UI was last told
 void CardLost()
 {
     card_gone = true;
-    card_answers = false;
     engine.StopStreams();
     slot_loader.Detach();
     DropCard();
@@ -201,41 +199,61 @@ bool MountCard()
     return true;
 }
 
-// Reads the card: the engine takes its options now, the UI takes the options and the presets on its tick.
-void ReadCard()
+// The SD timer owns the card from power-on. It reads a card at boot, when one comes back and after the host had
+// it, a step a tick, so main can run the UI meanwhile.
+enum class CardJob : uint8_t
 {
-    options.Init();
-    engine.SetTapeSlew(options.tape_slew_on);
-    engine.SetMonitorMode(MonitorMode(options.monitor_position));
-    ui.ReadCard();
-    engine.UpdateFileExists();
-    copier.StartScan();
+    kWait, // main hasn't set the SD stack up yet
+    kNone,
+    kRead,
+};
+volatile CardJob card_job = CardJob::kWait;
+uint8_t card_step = 0;
+bool card_reopen = false; // set when the card came back while running, so the streams reopen their files
+
+void StartCardJob(bool reopen)
+{
+    card_step = 0;
+    card_reopen = reopen;
+    card_job = CardJob::kRead;
 }
 
-// Mounts and reads the card anew from main while the SD timer leaves it alone; the UI takes it at once.
-bool TakeCard()
+void CardJobStep()
 {
-    if(!MountCard())
-        return false;
-    streamer.Forget();
-    ReadCard();
-    ui.ApplyCard();
-    return true;
-}
-
-void CardBack()
-{
-    if(TakeCard())
+    switch(card_step++)
     {
-        engine.ReopenStreams();
-        card_gone = false;
+        case 0:
+            if(!MountCard())
+            {
+                card_gone = true; // plays the built-in sample until a card is in
+                card_job = CardJob::kNone;
+            }
+            return;
+        case 1:
+            f_unlink(".batt_log.txt");
+            f_unlink("._.batt_log.txt"); // macos makes a copy
+            streamer.Forget();
+            return;
+        case 2:
+            options.Init();
+            engine.SetTapeSlew(options.tape_slew_on);
+            engine.SetMonitorMode(MonitorMode(options.monitor_position));
+            return;
+        case 3: ui.ReadCard(); return;
+        case 4: engine.UpdateFileExists(); return;
+        default:
+            copier.StartScan();
+            if(card_reopen)
+                engine.ReopenStreams();
+            card_gone = false;
+            card_job = CardJob::kNone;
     }
-    card_answers = false;
 }
 
 // the card as a USB drive: CHOMPI lets go of it while the host has it, and takes it back as it finds it.
 // All card work runs on the SD timer; while card_lent it serves only the host, and this runs alone on the card
 bool card_lent = false;
+bool reload_slot = false;
 void CardMode(bool on)
 {
     if(on)
@@ -253,22 +271,15 @@ void CardMode(bool on)
         usb::CardMode(false);
         while(sd_dma.Active())
             System::Delay(1);
-        const bool back = TakeCard();
-        card_gone = !back;
+        StartCardJob(false);
         card_lent = false;
-        if(back) // the host may have changed the slot's file
-            engine.SetVoiceSlot(engine.GetVoiceSlot(), true);
+        reload_slot = true; // the host may have changed the slot's file
     }
     ui.CardMode(on);
 }
 
 void SDCallback(void* data)
 {
-    if(!init_done) // the card is main's
-    {
-        ui.BootTick(System::GetNow(), sound_up);
-        return;
-    }
     if(sd_dma.Busy()) // a transfer owns the card
         return;
     if(card_lent)
@@ -276,16 +287,23 @@ void SDCallback(void* data)
         usb::CardTask();
         return;
     }
+    if(card_job != CardJob::kNone)
+    {
+        if(card_job == CardJob::kRead)
+            CardJobStep();
+        return;
+    }
 
     const uint32_t now = System::GetNow();
-    if(card_gone) // until main has it back: a card put in answers once it is initialised anew
+    if(card_gone) // a card put in answers once it is initialised anew
     {
-        if(!card_answers && now - sd_checkt > 1000)
+        if(now - sd_checkt > 1000)
         {
             sd_checkt = now;
             HAL_SD_DeInit(&hsd1);
             disk.is_initialized[0] = 0; // FatFS calls the driver's init only once a run otherwise
-            card_answers = disk_initialize(0) == 0;
+            if(disk_initialize(0) == 0)
+                StartCardJob(true);
         }
         return;
     }
@@ -363,21 +381,31 @@ void MainLoop(void* data)
         ui.DoEvents();
         ui.ProcessMidi();
         uit = now;
-        if(card_answers)
-            CardBack();
+        if(card_job == CardJob::kNone)
+        {
+            ui.CardRead();
+            if(reload_slot)
+            {
+                reload_slot = false;
+                if(!card_gone)
+                    engine.SetVoiceSlot(engine.GetVoiceSlot(), true);
+            }
+        }
         if(card_gone != card_shown)
         {
             card_shown = card_gone;
             ui.CardGone(card_shown);
         }
 
-        if(ui.TakeCardModeRequest() && (usb::InCardMode() || (usb::Connected() && !engine.Recording() && !copier.IsCopying())))
+        if(ui.TakeCardModeRequest()
+           && (usb::InCardMode()
+               || (usb::Connected() && card_job == CardJob::kNone && !engine.Recording() && !copier.IsCopying())))
             CardMode(!usb::InCardMode());
         else if(usb::InCardMode() && (usb::TakeCardEjected() || !usb::Connected()))
             CardMode(false);
     }
 
-    if (now - pre_startt > 5000)
+    if(now - pre_startt > 5000 && card_job == CardJob::kNone) // the card's presets are read before ours are written
     {
         ui.TestPresets();
         pre_startt = now;
@@ -481,7 +509,7 @@ int main(void)
     for(SdFile &f : stream_files)
         f = SdFile();
     leds.Init();
-    hw.StartLowPriorityCallback(SDCallback, 1000); // draws the rainbow through init, then it is the card's timer
+    hw.StartLowPriorityCallback(SDCallback, 1000);
     // System::Delay(100);
 
     hw.MpWrite(0x0c, 0B01010001); // set BATT_LOW to 3V, turn on 
@@ -513,20 +541,12 @@ int main(void)
     daisy::System::Delay(1);
     hw.usb_sw.Write(true);     // take USB control
 
-    // The card comes up with the device already playing; main's first tick applies what it holds.
     SdmmcHandler::Config sd_cfg;
     sd_cfg.speed = SdmmcHandler::Speed::FAST;
     sd_cfg.width = SdmmcHandler::BusWidth::BITS_4;
     sdmmc.Init(sd_cfg);
     fsi.Init(FatFSInterface::Config::MEDIA_SD);
-    if(MountCard())
-    {
-        f_unlink(".batt_log.txt");
-        f_unlink("._.batt_log.txt"); // macos makes a copy
-        ReadCard();
-    }
-    else
-        card_gone = true; // plays the built-in sample until a card is in
+    StartCardJob(false);
 
     now = daisy::System::GetNow();
     uit = now;
@@ -537,7 +557,6 @@ int main(void)
     usbt = now;
     batt = now;
     #endif
-    init_done = true;
 
     while (1)
     {

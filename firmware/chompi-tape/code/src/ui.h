@@ -101,15 +101,8 @@ namespace chompi
         void CardMode(bool on) { menu_page_.CardMode(on); }
         bool TakeCardModeRequest() { return menu_page_.TakeCardModeRequest(); }
 
-        // Runs from the SD timer until main runs the UI: the rainbow, and the pages once there is sound.
-        void BootTick(uint32_t now, bool pages)
-        {
-            const bool drew = rainbow_.Step(now, false);
-            if(pages)
-                ui.Process(); // draws at its own frame rate
-            else if(drew)
-                leds.Show();
-        }
+        // Called once the card is read or found missing; the rainbow then fades into the pages.
+        void CardRead() { card_read_ = true; }
         inline bool InRainbows() const { return rainbow_.Running(); }
 
         bool key_cc[2];
@@ -313,8 +306,8 @@ namespace chompi
                                                              enc_defaults[1][1], enc_defaults[1][2], 1.f, 1.f,
                                                              enc_defaults[1][0], .5f, 0.f, 0.f};
 
-        // Main reads presets.json with the card and applies it with the options from the UI's tick, so a recall
-        // never reads a preset half written. A write under way is dropped; the card's copy wins.
+        // The SD timer reads presets.json with the card, and the UI's tick applies it with the options, so a
+        // recall never reads a preset half written. A write under way is dropped; the card's copy wins.
         void ReadCard()
         {
             DropPresetsWrite();
@@ -353,7 +346,7 @@ namespace chompi
                 menu_page_.ResetFx();
                 fx_->FxResetDone();
             }
-            rainbow_.Step(System::GetNow(), true);
+            rainbow_.Step(System::GetNow(), card_read_);
             ui.Process();
         }
 
@@ -362,6 +355,8 @@ namespace chompi
         // for some reason this causes clicking if you optimize it higher than this...
         void TestPresets()
         {
+            if(card_pending_) // the buffer holds the card's file until it is parsed
+                return;
             if(write_stage == 0) // start chunked write
             {
                 PresetManager::Result res = presets_manager->WriteWholeFile(presets_file, PresetManager::kFileSize);
@@ -444,7 +439,8 @@ namespace chompi
         NoSDPage no_sd_page_;
         Rainbow rainbow_;
         bool presets_read_ = false;
-        bool card_pending_ = false;
+        volatile bool card_pending_ = false; // the SD timer read the card, main applies it
+        bool card_read_ = false;
         static constexpr uint32_t kCardBlink = 1000; // ms
         uint32_t card_gone_at_ = 0;
         daisy::UiEventQueue event_queue;
