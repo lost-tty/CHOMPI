@@ -21,7 +21,7 @@ const parts = keys.map((p) => {
     : p.type === 'arrow' ? <Arrow x={p.x + 8} y={24} n={26} />
     : p.type === 'note' ? <text class="dim" x={r(p.x + 4)} y="33" font-family={SANS} font-size={SM}>{p.text}</text>
     : <>
-        <rect class="key" x={r(p.x)} y="2" width={r(p.w)} height="44" rx="5" stroke-width="2" />
+        <rect class="key" x={r(p.x)} y="2" width={r(p.w)} height="44" rx="12" stroke-width="2" />
         <text x={r(p.x + p.w / 2)} y="33" text-anchor="middle" font-family={MONO} font-size={SM} font-weight="500">{p.text}</text>
       </>
   )}

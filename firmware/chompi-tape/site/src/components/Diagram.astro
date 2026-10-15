@@ -41,7 +41,7 @@ const fx = nx(notes.length - 1) + 64;
       )}
       {boxes.map(({ x, text, c, i }) => (
         <>
-          <rect class="box" x={r(x)} y={y} width={r(bw)} height="60" stroke-width="2" />
+          <rect class="box" x={r(x)} y={y} width={r(bw)} height="60" rx="30" stroke-width="2" />
           <text x={r(x + bw / 2 + (c ? 14 : 0))} y={y + 40} text-anchor="middle" font-family={MONO} font-size={SM} font-weight="500">{text}</text>
           {c && <circle class="dot" cx={r(x + 26)} cy={y + 30} r="8" style={`fill: ${c === 'vu' ? 'url(#vu)' : c}`} stroke-width="1.8" />}
           {c && blink && i === 0 && <circle class="back" cx={r(x + 26)} cy={y + 30} r="14" stroke-width="2" stroke-dasharray="4 4" />}

@@ -8,7 +8,7 @@ export const LED = {
 };
 
 export const SANS = 'Helvetica Neue, Helvetica, Arial, sans-serif';
-export const MONO = 'Menlo, monospace';
+export const MONO = 'Rubik, Helvetica Neue, Arial, sans-serif'; // the body font: labels read as words, not code
 export const CW = 905; // drawing width
 export const FS = 32;
 export const SM = 26;

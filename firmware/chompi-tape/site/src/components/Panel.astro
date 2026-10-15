@@ -27,8 +27,22 @@ const ledList = [
 ];
 const [wx, wy, wr] = WHEEL;
 ---
-<svg viewBox={`-4 0 ${CW + 8} ${r(height)}`} role="img">
-  <rect class="frame" x={X(0)} y={Y(105)} width={r(PW * s)} height={r(PH * s)} rx={r(3 * s)} stroke-width={r(lw * 1.4)} />
+<svg class="chompi" viewBox={`-4 0 ${CW + 8} ${r(height)}`} role="img">
+  <defs>
+    <linearGradient id="p-body" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0" stop-color="color-mix(in oklab, var(--paper) 70%, white)" /><stop offset="1" stop-color="var(--surface)" />
+    </linearGradient>
+    <radialGradient id="p-knob" cx=".35" cy=".3" r=".8">
+      <stop offset="0" stop-color="color-mix(in oklab, var(--paper) 70%, white)" /><stop offset="1" stop-color="color-mix(in oklab, var(--key) 60%, var(--paper))" />
+    </radialGradient>
+    <linearGradient id="p-key" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0" stop-color="color-mix(in oklab, var(--paper) 75%, white)" /><stop offset="1" stop-color="color-mix(in oklab, var(--key) 60%, var(--paper))" />
+    </linearGradient>
+    <linearGradient id="p-black" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0" stop-color="color-mix(in oklab, var(--line) 70%, var(--paper))" /><stop offset="1" stop-color="var(--line)" />
+    </linearGradient>
+  </defs>
+  <rect class="frame" x={X(0)} y={Y(105)} width={r(PW * s)} height={r(PH * s)} rx={r(6 * s)} stroke-width={r(lw * 1.4)} />
   {KNOBS.map((k, i) => (
     <>
       <circle class:list={['knob', { hl: on(`knob${i}`) }]} cx={X(k)} cy={Y(71.36)} r={r(6.5 * s)} stroke-width={sw(`knob${i}`)} />
@@ -36,12 +50,12 @@ const [wx, wy, wr] = WHEEL;
     </>
   ))}
   {ledList.map(({ x, y, c }) => (
-    <circle class={c ? 'dot' : 'led'} cx={X(x)} cy={Y(y)} r={r((c ? 3 : 2.2) * s)} style={c && `fill: ${c}`} stroke-width={r(lw * 0.7)} />
+    <circle class={c ? 'dot' : 'led'} cx={X(x)} cy={Y(y)} r={r((c ? 3 : 2.2) * s)} style={c && `fill: ${c}; filter: drop-shadow(0 0 3px ${c})`} stroke-width={r(lw * 0.7)} />
   ))}
   <circle class:list={['knob', { hl: on('wheel') }]} cx={X(wx)} cy={Y(wy)} r={r(wr * s)} stroke-width={sw('wheel')} />
   {keys.map(({ x, y, size, black, name, level }) => (
     <rect class:list={['key', { black, hl: on(name) }]} x={r(X(x) - size * s / 2)} y={r(Y(y) - size * s / 2)}
-          width={r(size * s)} height={r(size * s)} rx={r(1.5 * s)} stroke-width={sw(name)}
+          width={r(size * s)} height={r(size * s)} rx={r(3 * s)} stroke-width={sw(name)}
           style={level !== undefined && `fill: var(--c); fill-opacity: ${level}`} />
   ))}
   {['mic', 'line'].filter((k) => leds[k]).map((k) => (
