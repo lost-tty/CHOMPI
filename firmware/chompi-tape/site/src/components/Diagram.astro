@@ -1,12 +1,11 @@
 ---
-// The small drawing under a panel: a row of steps, the length LEDs, the step sections, the line in modes or the beats
+// The small drawing under a panel: a row of steps, the length LEDs, the step sections, or the beats
 import Arrow from './Arrow.astro';
 import { LED, SANS, MONO, CW, FS, SM, r } from '../lib/drawing.js';
 
-const { type, steps = [], back = false, blink = false, rows = [] } = Astro.props;
+const { type, steps = [], back = false, blink = false } = Astro.props;
 const y = 30;
-const heights = { flow: back ? 108 : 84, length: 120, sections: 112, mono: 150, beats: 160, rate: 70,
-  legend: rows.length * 46 + 4 };
+const heights = { flow: back ? 108 : 84, length: 120, sections: 112, beats: 160, rate: 70 };
 
 // flow: three boxes with arrows, an LED in some; back: a dashed line back to the first; blink: the first LED blinks
 const bw = (CW - 2 * 56) / 3;
@@ -21,8 +20,6 @@ const sw = CW / 4;
 // beats: one bar, the loop from 1 to the next 1, and a late rec and an early stop that snap to them
 const bx = (i) => 30 + i * (CW - 60) / 4;
 const presses = [['rec', bx(0) + 90], ['stop', bx(4) - 90]];
-const monoModes = [['Stereo', LED.pink], ['Mono, left channel', LED.red], ['Mono, right channel', LED.green]];
-
 // rate: the arp knob from off over the note values into free time, as its LED shows them
 const notes = [['1/4', 'green'], ['1/8.', 'yellow'], ['1/8', 'orange'], ['1/16.', 'pink'], ['1/16', 'red'],
   ['1/32.', 'magenta'], ['1/32', 'deep']];
@@ -135,17 +132,4 @@ const fx = nx(notes.length - 1) + 64;
       <text x={r(CW)} y={y + 60} text-anchor="end" font-family={MONO} font-size={SM} font-weight="500">slow</text>
     </>
   )}
-  {type === 'legend' && rows.map(([text, c, note], i) => (
-    <>
-      <circle class="dot" cx="12" cy={y + i * 46 + 20} r="10" style={`fill: ${LED[c]}`} stroke-width="1.8" />
-      <text x="36" y={y + i * 46 + 30} font-family={SANS} font-size={FS} font-weight="600">{text}</text>
-      {note && <text class="dim" x="250" y={y + i * 46 + 30} font-family={SANS} font-size={FS}>{note}</text>}
-    </>
-  ))}
-  {type === 'mono' && monoModes.map(([text, c], i) => (
-    <>
-      <circle class="dot" cx="12" cy={y + i * 46 + 20} r="10" style={`fill: ${c}`} stroke-width="1.8" />
-      <text x="36" y={y + i * 46 + 30} font-family={SANS} font-size={FS}>{text}</text>
-    </>
-  ))}
 </svg>

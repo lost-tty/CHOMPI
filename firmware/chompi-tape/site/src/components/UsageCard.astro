@@ -2,18 +2,31 @@
 import Keys from './Keys.astro';
 import Panel from './Panel.astro';
 import Diagram from './Diagram.astro';
+import { LED } from '../lib/drawing.js';
 
-const { id, title, colour, keys, panel, diagram, items = [], text } = Astro.props;
+const { id, title, colour, keys, panel, diagram, rows, legend, items = [], text } = Astro.props;
 ---
 <article class="feat" id={id} style={`--c: var(--${colour})`}>
   <div class="pic">
     <div class="combo"><Keys keys={keys} /></div>
     {panel && <figure class="fig"><Panel {...panel} /></figure>}
     {diagram && <figure class="fig"><Diagram {...diagram} /></figure>}
+    {rows && (
+      <ul class="rows">
+        {rows.map(([label, c, note]) => (
+          <li><span class="led" style={`background: ${LED[c]}`} /><b>{label}</b><span class="dim">{note}</span></li>
+        ))}
+      </ul>
+    )}
   </div>
   <div class="txt">
     <h3>{title}</h3>
     {items.length > 0 && <ul>{items.map((item) => <li set:html={item} />)}</ul>}
     {text && <p set:html={text} />}
+    {legend && (
+      <ul class="legend">
+        {legend.map(([label, c]) => <li><span class="led" style={`background: ${LED[c]}`} />{label}</li>)}
+      </ul>
+    )}
   </div>
 </article>

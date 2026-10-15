@@ -61,7 +61,7 @@ export const usage = [
   {
     id: 'mono', title: 'Line in mono', colour: 'red', keys: ['SHIFT', '+', 'LINE IN', '_hold'],
     panel: { hl: ['shift', 'line'], leds: { line: LED.red }, labels: { shift: ['hold', 0, -90], line: ['hold', 0, 80] } },
-    diagram: { type: 'mono' },
+    legend: [['Stereo', 'pink'], ['Mono, left channel', 'red'], ['Mono, right channel', 'green']],
     items: ['Mono cables are detected automatically',
       '<b>Hold</b> the line in key: next mode'],
   },
@@ -136,19 +136,19 @@ export const groups = [
 export const usb = [
   {
     id: 'usb-audio', title: 'Audio', colour: 'blue', keys: ['USB'],
-    diagram: { type: 'legend', rows: [
-      ['1  Mix L', 'blue', 'CHOMPI \u2192 computer'], ['2  Mix R', 'blue', 'CHOMPI \u2192 computer'],
-      ['3  Input L', 'red', 'CHOMPI \u2192 computer'], ['4  Input R', 'red', 'CHOMPI \u2192 computer'],
-      ['Out L', 'pink', 'computer \u2192 CHOMPI'], ['Out R', 'pink', 'computer \u2192 CHOMPI']] },
+    rows: [
+      ['1 Mix L', 'blue', 'CHOMPI \u2192 computer'], ['2 Mix R', 'blue', 'CHOMPI \u2192 computer'],
+      ['3 Input L', 'red', 'CHOMPI \u2192 computer'], ['4 Input R', 'red', 'CHOMPI \u2192 computer'],
+      ['Out L', 'pink', 'computer \u2192 CHOMPI'], ['Out R', 'pink', 'computer \u2192 CHOMPI']],
     text: 'Select CHOMPI as the audio device on the computer. 48 kHz, 24 bit. Mix is CHOMPI\u2019s main output; '
       + 'Input is whatever CHOMPI is sampling; Out is the computer\u2019s playback into CHOMPI.',
   },
   {
-    id: 'usb-input', title: 'USB as the input', colour: 'blue', keys: ['MIC', '_hold'],
-    panel: { hl: ['mic'], leds: { mic: LED.blue }, labels: { mic: ['hold', 0, 80] } },
+    id: 'usb-input', title: 'Sample from the computer', colour: 'blue', keys: ['SHIFT', '+', 'MIC', '_hold'],
+    panel: { hl: ['shift', 'mic'], leds: { mic: LED.blue }, labels: { shift: ['hold', 0, -90], mic: ['hold', 0, 80] } },
     items: ['Start playback on the computer. CHOMPI switches its input to USB and the <b>MIC</b> LED turns blue.',
       'Sample it and loop it as you would the line input. The input gain applies.',
-      'Hold <b>MIC</b> to switch between the microphone and USB by hand.'],
+      'Hold <b>SHIFT</b> and hold <b>MIC</b> to switch between the microphone and USB by hand.'],
   },
   {
     id: 'usb-midi', title: 'MIDI', colour: 'blue', keys: ['USB'],
@@ -156,11 +156,11 @@ export const usb = [
       'MIDI clock from the computer sets the tempo.'],
   },
   {
-    id: 'usb-card', title: 'Card reader', colour: 'blue', keys: ['COPY', '_hold'],
-    panel: { hl: ['copy'], labels: { copy: ['hold', 0, 80] } },
-    items: ['With the computer connected, hold <b>COPY</b>. The SD card mounts on the computer as a drive and the keys light blue.',
+    id: 'usb-card', title: 'Card reader', colour: 'blue', keys: ['SHIFT', '+', 'COPY', '_hold'],
+    panel: { hl: ['shift', 'copy'], labels: { shift: ['hold', 0, -90], copy: ['hold', 0, 80] } },
+    items: ['With the computer connected, hold <b>SHIFT</b> and hold <b>COPY</b>. The SD card mounts on the computer as a drive and the keys light blue.',
       'While the card is mounted, CHOMPI is paused: it cannot play, record or load.',
-      'Hold <b>COPY</b> again to take the card back.'],
+      'Do the same again, or eject the drive on the computer, to take the card back.'],
   },
 ];
 
@@ -174,10 +174,10 @@ export const arp = [
   },
   {
     id: 'arp-pattern', title: 'Patterns', colour: 'green', keys: ['LEFT KNOB', '_hold + turn'],
-    diagram: { type: 'legend', rows: [['Up', 'white', 'low to high'], ['Down', 'deep', 'high to low'],
+    rows: [['Up', 'white', 'low to high'], ['Down', 'deep', 'high to low'],
       ['Up-down', 'blue', 'up, then back down'], ['As played', 'green', 'in the order you pressed'],
       ['Random', 'magenta', 'in random order'], ['Bounce', 'purple', 'each note, then an octave up'],
-      ['Tresillo', 'lime', 'the 3 + 3 + 2 rhythm'], ['Swing', 'teal', 'every second note late']] },
+      ['Tresillo', 'lime', 'the 3 + 3 + 2 rhythm'], ['Swing', 'teal', 'every second note late']],
     items: [],
   },
   {
