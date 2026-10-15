@@ -3,7 +3,7 @@ TARGET = CHOMPI
 
 DEBUG=0
 # OPT=-O0
-OPT=-O3
+OPT=-O2
 
 # GNU Arm 10.3-2021.10, as in CI: libDaisy built by GCC 15 hangs the card init on the second boot.
 # GCC_PATH names its bin, from the environment or from local.mk, which is not in git
@@ -27,6 +27,7 @@ TINYUSB_SOURCES = $(TINYUSB_DIR)/tusb.c \
 	$(TINYUSB_DIR)/class/audio/audio_device.c \
 	$(TINYUSB_DIR)/class/midi/midi_device.c \
 	$(TINYUSB_DIR)/class/msc/msc_device.c \
+	$(TINYUSB_DIR)/class/cdc/cdc_device.c \
 	$(TINYUSB_DIR)/portable/synopsys/dwc2/dcd_dwc2.c \
 	$(TINYUSB_DIR)/portable/synopsys/dwc2/dwc2_common.c
 C_SOURCES += $(TINYUSB_SOURCES) usb_descriptors.c

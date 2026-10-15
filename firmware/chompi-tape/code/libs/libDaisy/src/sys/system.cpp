@@ -98,7 +98,7 @@ extern "C"
      */
 
     // TODO: Add some real handling to the HardFaultHandler
-    void HardFault_Handler()
+    __attribute__((weak)) void HardFault_Handler() // the firmware brings its own, which logs the fault
     {
         // Grab an instance of the SCB so we can `p/x *scb` from the debugger
         SCB_Type* scb = SCB;

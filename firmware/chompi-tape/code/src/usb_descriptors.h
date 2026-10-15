@@ -8,6 +8,8 @@ enum
     ITF_NUM_MIDI,
     ITF_NUM_MIDI_STREAMING,
     ITF_NUM_MSC, // the card as a drive
+    ITF_NUM_CDC, // the log
+    ITF_NUM_CDC_DATA,
     ITF_NUM_TOTAL
 };
 

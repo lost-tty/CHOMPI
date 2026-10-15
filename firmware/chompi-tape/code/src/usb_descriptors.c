@@ -16,6 +16,9 @@
 #define EPNUM_MIDI_IN  0x83
 #define EPNUM_MSC_OUT  0x04
 #define EPNUM_MSC_IN   0x84
+#define EPNUM_CDC_NOTIF 0x85
+#define EPNUM_CDC_OUT   0x05
+#define EPNUM_CDC_IN    0x86
 
 enum
 {
@@ -26,6 +29,7 @@ enum
     STRID_AUDIO,
     STRID_MIDI,
     STRID_MSC,
+    STRID_CDC,
     STRID_CH_MIX_L, // the TX channel names, consecutive and in the order usb::Send() takes them
     STRID_CH_MIX_R,
     STRID_CH_IN_L,
@@ -78,7 +82,7 @@ uint8_t const *tud_descriptor_device_cb(void)
 
 #define MIDI_IAD_LEN 8
 
-#define CONFIG_TOTAL_LEN (TUD_CONFIG_DESC_LEN + AUDIO_DESC_LEN + MIDI_IAD_LEN + TUD_MIDI_DESC_LEN + TUD_MSC_DESC_LEN)
+#define CONFIG_TOTAL_LEN (TUD_CONFIG_DESC_LEN + AUDIO_DESC_LEN + MIDI_IAD_LEN + TUD_MIDI_DESC_LEN + TUD_MSC_DESC_LEN + TUD_CDC_DESC_LEN)
 
 #define RX_EP_SIZE CFG_TUD_AUDIO_FUNC_1_EP_OUT_SZ_MAX
 #define TX_EP_SIZE CFG_TUD_AUDIO_FUNC_1_EP_IN_SZ_MAX
@@ -142,6 +146,7 @@ static uint8_t const desc_configuration[] = {
     TUD_MIDI_DESCRIPTOR(ITF_NUM_MIDI, STRID_MIDI, EPNUM_MIDI_OUT, EPNUM_MIDI_IN, 64),
 
     TUD_MSC_DESCRIPTOR(ITF_NUM_MSC, STRID_MSC, EPNUM_MSC_OUT, EPNUM_MSC_IN, 64),
+    TUD_CDC_DESCRIPTOR(ITF_NUM_CDC, STRID_CDC, EPNUM_CDC_NOTIF, 8, EPNUM_CDC_OUT, EPNUM_CDC_IN, 64),
 };
 
 TU_VERIFY_STATIC(sizeof(desc_configuration) == CONFIG_TOTAL_LEN, "Incorrect size");
@@ -159,6 +164,7 @@ static char const *const string_desc[] = {
     [STRID_AUDIO]        = "CHOMPI",
     [STRID_MIDI]         = "CHOMPI",
     [STRID_MSC]          = "CHOMPI SD",
+    [STRID_CDC]          = "CHOMPI log",
     [STRID_CH_MIX_L]     = "Mix L",
     [STRID_CH_MIX_R]     = "Mix R",
     [STRID_CH_IN_L]      = "Input L",

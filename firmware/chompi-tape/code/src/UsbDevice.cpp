@@ -1,6 +1,8 @@
 #include "UsbDevice.h"
 
 #include <cmath>
+#include <cstdarg>
+#include <cstdio>
 #include "stm32h7xx_hal.h"
 #include "daisy_core.h"
 #include "util/scopedirqblocker.h"
@@ -124,6 +126,7 @@ namespace chompi
             TIM7->SR = 0;
             TIM7->DIER = TIM_DIER_UIE;
             HAL_NVIC_SetPriority(TIM7_IRQn, 2, 0);
+            SCB->SHCSR |= SCB_SHCSR_MEMFAULTENA_Msk | SCB_SHCSR_BUSFAULTENA_Msk | SCB_SHCSR_USGFAULTENA_Msk;
             HAL_NVIC_EnableIRQ(TIM7_IRQn);
             TIM7->CR1 = TIM_CR1_CEN;
         }
@@ -136,10 +139,30 @@ namespace chompi
                 tud_connect();
             }
             tud_task();
+            tud_cdc_write_flush();
             MidiTinyUsbTransport::Process();
         }
 
+        volatile uint32_t main_alive = 0;
+        void MainAlive() { main_alive++; }
+
         bool Connected() { return tud_ready(); }
+
+        void Log(const char *fmt, ...)
+        {
+            char line[160];
+            const int n0 = snprintf(line, sizeof(line), "%8lu ", (unsigned long)HAL_GetTick());
+            va_list args;
+            va_start(args, fmt);
+            int n = vsnprintf(line + n0, sizeof(line) - n0 - 2, fmt, args);
+            va_end(args);
+            n = n0 + (n < 0 ? 0 : n > int(sizeof(line)) - n0 - 3 ? int(sizeof(line)) - n0 - 3 : n);
+            line[n++] = '\r';
+            line[n++] = '\n';
+            daisy::ScopedIrqBlocker block; // main, the SD timer and the audio may all log
+            if(tud_cdc_write_available() >= uint32_t(n))
+                tud_cdc_write(line, n);
+        }
 
         bool RxStreaming() { return rx_on; }
 
@@ -412,11 +435,67 @@ extern "C"
         return -1;
     }
 
-    void TIM7_IRQHandler(void)
+    // the USB task, and a watch on main: while main's loop doesn't come round, the stacked frame shows what ran
+    void usb_tick(const uint32_t *frame)
     {
         TIM7->SR = 0;
         chompi::usb::Task();
+        static uint32_t ticks = 0, seen = 0, quiet = 0;
+        if(++ticks % 1000) // 4 Hz
+            return;
+        if(chompi::usb::main_alive != seen)
+        {
+            seen = chompi::usb::main_alive;
+            quiet = 0;
+            return;
+        }
+        if(++quiet < 4) // a second
+            return;
+        chompi::usb::Log("STUCK %lus: pc %08lx lr %08lx sp %08lx xpsr %08lx r0 %08lx r1 %08lx r2 %08lx r3 %08lx r12 %08lx",
+                         (unsigned long)(quiet / 4), (unsigned long)frame[6], (unsigned long)frame[5],
+                         (unsigned long)(reinterpret_cast<uint32_t>(frame) + 32), (unsigned long)frame[7],
+                         (unsigned long)frame[0], (unsigned long)frame[1], (unsigned long)frame[2], (unsigned long)frame[3],
+                         (unsigned long)frame[4]);
     }
+    __attribute__((naked)) void TIM7_IRQHandler(void)
+    {
+        __asm volatile("tst lr, #4\n"
+                       "ite eq\n"
+                       "mrseq r0, msp\n"
+                       "mrsne r0, psp\n"
+                       "push {r4, lr}\n"
+                       "bl usb_tick\n"
+                       "pop {r4, pc}\n");
+    }
+
+    // a fault: its registers to the log, then the USB serviced by hand forever, since nothing below runs
+    void usb_fault(const uint32_t *frame, uint32_t which)
+    {
+        chompi::usb::Log("FAULT %lu: pc %08lx lr %08lx sp %08lx xpsr %08lx cfsr %08lx hfsr %08lx mmfar %08lx bfar %08lx",
+                         (unsigned long)which, (unsigned long)frame[6], (unsigned long)frame[5],
+                         (unsigned long)(reinterpret_cast<uint32_t>(frame) + 32), (unsigned long)frame[7],
+                         (unsigned long)SCB->CFSR, (unsigned long)SCB->HFSR, (unsigned long)SCB->MMFAR,
+                         (unsigned long)SCB->BFAR);
+        chompi::usb::Log("FAULT regs: r0 %08lx r1 %08lx r2 %08lx r3 %08lx r12 %08lx", (unsigned long)frame[0],
+                         (unsigned long)frame[1], (unsigned long)frame[2], (unsigned long)frame[3], (unsigned long)frame[4]);
+        for(;;)
+        {
+            tusb_int_handler(0, true);
+            tud_task();
+            tud_cdc_write_flush();
+        }
+    }
+#define FAULT_ENTRY(n)                    \
+    __asm volatile("tst lr, #4\n"         \
+                   "ite eq\n"             \
+                   "mrseq r0, msp\n"      \
+                   "mrsne r0, psp\n"      \
+                   "mov r1, #" #n "\n"    \
+                   "b usb_fault\n")
+    __attribute__((naked)) void HardFault_Handler(void) { FAULT_ENTRY(1); }
+    __attribute__((naked)) void MemManage_Handler(void) { FAULT_ENTRY(2); }
+    __attribute__((naked)) void BusFault_Handler(void) { FAULT_ENTRY(3); }
+    __attribute__((naked)) void UsageFault_Handler(void) { FAULT_ENTRY(4); }
 
     void OTG_HS_IRQHandler(void)
     {

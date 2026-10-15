@@ -352,6 +352,7 @@ void BootHoldStep(uint32_t now)
 
 void MainLoop(void* data)
 {
+    chompi::usb::MainAlive(); // the USB task logs where the CPU is when this stops
     // volatile float avg_load = meter.GetAvgCpuLoad();
     // volatile float max_load = meter.GetMaxCpuLoad();
     now = daisy::System::GetNow();

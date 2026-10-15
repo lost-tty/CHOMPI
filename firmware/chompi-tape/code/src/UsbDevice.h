@@ -36,6 +36,11 @@ namespace chompi
         bool TakeCardEjected();
         // SD timer, while the card is free: the host's transfers
         void CardTask();
+
+        // printf to the CDC port, from any context; the USB task sends it. Lines are dropped while it is full.
+        void Log(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
+        // main's loop calls it: while it stops, the USB task logs where the CPU is
+        void MainAlive();
     }
 
     // libDaisy's MidiHandler transport on TinyUSB: Tx queues from any context, Process() in usb's task sends and receives
