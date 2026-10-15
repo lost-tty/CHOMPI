@@ -118,6 +118,7 @@ class PresetManager
 
         std::fill_n(buffer, size, '\0');
         strcpy(buffer, "[");
+        written_ = 1;
         char append[64];
         for(int mode = 0; mode < kMaxModes; mode++)
         {
@@ -151,12 +152,12 @@ class PresetManager
                     StrAppend(buffer, append);
                 }
 
-                buffer[strlen(buffer) - 1] = '\0';
+                buffer[--written_] = '\0';
                 sprintf(append,"],");
                 StrAppend(buffer, append);
             }
 
-            buffer[strlen(buffer) - 1] = '\0';
+            buffer[--written_] = '\0';
             sprintf(append,"],");
             StrAppend(buffer, append);
         }
@@ -187,93 +188,27 @@ class PresetManager
         return Result::OK;
     }
 
-    /** loads the JSON file, storing in name/value pairs for all keys */
+    // Walks the file once. A V1 file has no version and seven values a slot.
     Result Parse(char* buffer, size_t size)
     {
         updated = true;
-        JSONStatus_t json_res;
-
         Result ret = Result::ERR_INVALID_JSON;
-        
-        size_t len = strlen(buffer);
-        json_res = JSON_Validate(buffer, len);
-        if(json_res == JSONSuccess)
+        const size_t len = strlen(buffer);
+        if(JSON_Validate(buffer, len) == JSONSuccess)
         {
-            char   query[51];
-            char*  value;
+            std::fill_n(&values_valid[0][0][0], kMaxModes * kMaxBanks * kMaxSlots, false);
+            char *value;
             size_t value_len;
-
-            /** Parse version number. No version number == version 1*/
-            sprintf(query, "[2]");
-            json_res = JSON_Search(
-                buffer, len, query, strlen(query), &value, &value_len);
-
-            uint8_t numcontrols = kFileControls;
-            if(json_res != JSONSuccess) // V1
-                numcontrols = 7;
-
-            sprintf(query, "[3].volume");
-            if(JSON_Search(buffer, len, query, strlen(query), &value, &value_len) == JSONSuccess)
-                volume = std::max(0., std::min(1., atof(value) / 1000.));
-            char *slots = nullptr;
-            size_t slots_len = 0;
-            sprintf(query, "[3].slots");
-            if(JSON_Search(buffer, len, query, strlen(query), &value, &value_len) == JSONSuccess)
+            const int numcontrols = JSON_Search(buffer, len, "[2]", 3, &value, &value_len) == JSONSuccess ? kFileControls : 7;
+            Items root(buffer, len);
+            JSONPair_t item;
+            for(int i = 0; root.Next(item); i++)
             {
-                slots = value;
-                slots_len = value_len;
+                if(i < kMaxModes && item.jsonType == JSONArray)
+                    ParseMode(item, i, numcontrols);
+                else if(i == 3 && item.jsonType == JSONObject)
+                    ParseSettings(item);
             }
-
-            /** Get module presets */
-            for(int mode = 0; mode < kMaxModes; mode++){
-                for(int bank = 0; bank < kMaxBanks; bank++)
-                {
-                    for(int slot = 0; slot < kMaxSlots; slot++)
-                    {
-                        // valid?
-                        sprintf(query, "[%d][%d][%d][%d]", mode, bank, slot, numcontrols);
-                        json_res = JSON_Search(
-                            buffer, len, query, strlen(query), &value, &value_len);
-                        
-                        char save = value[4];
-                        value[4] = '\0';
-                        bool valid = strcmp(value, "true") == 0;
-                        value[4] = save;
-
-                        if(json_res == JSONSuccess && valid)
-                        {
-                            for(int ctrl = 0; ctrl < numcontrols; ctrl++)
-                            {
-                                /** and now check for the value */
-                                sprintf(query, "[%d][%d][%d][%d]",mode, bank, slot, ctrl);
-
-                                json_res = JSON_Search(
-                                    buffer, len, query, strlen(query), &value, &value_len);
-
-                                if(json_res == JSONSuccess)
-                                {
-                                    values[mode][bank][slot][ctrl] = atof(value) / 1000.;
-                                }
-                            }
-                            values_valid[mode][bank][slot] = true;
-                            if(slots)
-                            {
-                                sprintf(query, "%s-%c-%d.legato", ModeName(mode), 'a' + bank, slot + 1);
-                                if(JSON_Search(slots, slots_len, query, strlen(query), &value, &value_len) == JSONSuccess)
-                                    values[mode][bank][slot][kLegato] = atoi(value) != 0;
-                                sprintf(query, "%s-%c-%d.glide", ModeName(mode), 'a' + bank, slot + 1);
-                                if(JSON_Search(slots, slots_len, query, strlen(query), &value, &value_len) == JSONSuccess)
-                                    values[mode][bank][slot][kGlide] = std::max(0., std::min(1., atof(value)));
-                            }
-                        }
-                        else
-                        {
-                            values_valid[mode][bank][slot] = false;
-                        }
-                    }
-                }
-            }
-
             ret = Result::OK;
         }
 
@@ -365,19 +300,126 @@ class PresetManager
 
 
 
+    // Appends at written_, so writing the file takes one pass.
     void StrAppend(char* buffer, char* append)
     {
-        size_t len = strlen(buffer);
-        size_t app_len = strlen(append);
-
-        for(size_t i = 0; i < app_len; i++)
-        {
-            buffer[len + i] = append[i];
-        }
-        buffer[len + app_len] = '\0';
+        const size_t app_len = strlen(append);
+        memcpy(buffer + written_, append, app_len + 1);
+        written_ += app_len;
     }
+    size_t written_ = 0;
 
     static const char *ModeName(int mode) { return mode ? "cubbi" : "jammi"; }
+
+    class Items
+    {
+      public:
+        Items(const char *buf, size_t len) : buf_(buf), len_(len) {}
+        Items(const JSONPair_t &collection) : buf_(collection.value), len_(collection.valueLength) {}
+        bool Next(JSONPair_t &item) { return JSON_Iterate(buf_, len_, &start_, &next_, &item) == JSONSuccess; }
+
+      private:
+        const char *buf_;
+        size_t len_;
+        size_t start_ = 0, next_ = 0;
+    };
+
+    static bool Is(const JSONPair_t &item, const char *key)
+    {
+        return item.key && item.keyLength == strlen(key) && memcmp(item.key, key, item.keyLength) == 0;
+    }
+
+    static float Unit(double v) { return std::max(0., std::min(1., v)); }
+
+    void ParseMode(const JSONPair_t &banks, int mode, int numcontrols)
+    {
+        Items bank_items(banks);
+        JSONPair_t bank_slots, slot_values;
+        for(int bank = 0; bank < kMaxBanks && bank_items.Next(bank_slots); bank++)
+        {
+            if(bank_slots.jsonType != JSONArray)
+                continue;
+            Items slot_items(bank_slots);
+            for(int slot = 0; slot < kMaxSlots && slot_items.Next(slot_values); slot++)
+                if(slot_values.jsonType == JSONArray)
+                    ParseSlot(slot_values, mode, bank, slot, numcontrols);
+        }
+    }
+
+    // A slot counts only when the flag after its values is true.
+    void ParseSlot(const JSONPair_t &slot_values, int mode, int bank, int slot, int numcontrols)
+    {
+        float v[kFileControls];
+        bool have[kFileControls] = {};
+        bool valid = false;
+        Items items(slot_values);
+        JSONPair_t item;
+        for(int k = 0; k <= numcontrols && items.Next(item); k++)
+        {
+            if(k < numcontrols)
+            {
+                v[k] = atof(item.value) / 1000.;
+                have[k] = true;
+            }
+            else
+                valid = item.valueLength == 4 && memcmp(item.value, "true", 4) == 0;
+        }
+        values_valid[mode][bank][slot] = valid;
+        if(valid)
+            for(int k = 0; k < numcontrols; k++)
+                if(have[k])
+                    values[mode][bank][slot][k] = v[k];
+    }
+
+    void ParseSettings(const JSONPair_t &settings)
+    {
+        Items items(settings);
+        JSONPair_t item;
+        while(items.Next(item))
+        {
+            if(Is(item, "volume"))
+                volume = Unit(atof(item.value) / 1000.);
+            else if(Is(item, "slots") && item.jsonType == JSONObject)
+                ParseSlotSettings(item);
+        }
+    }
+
+    void ParseSlotSettings(const JSONPair_t &slots)
+    {
+        Items slot_items(slots);
+        JSONPair_t slot_settings, setting;
+        while(slot_items.Next(slot_settings))
+        {
+            int mode, bank, slot;
+            if(!SlotOfKey(slot_settings, mode, bank, slot) || !values_valid[mode][bank][slot])
+                continue;
+            Items settings(slot_settings);
+            while(settings.Next(setting))
+            {
+                if(Is(setting, "legato"))
+                    values[mode][bank][slot][kLegato] = atoi(setting.value) != 0;
+                else if(Is(setting, "glide"))
+                    values[mode][bank][slot][kGlide] = Unit(atof(setting.value));
+            }
+        }
+    }
+
+    // Accepts only a key as the writer spells it, like "jammi-a-3".
+    static bool SlotOfKey(const JSONPair_t &item, int &mode, int &bank, int &slot)
+    {
+        if(!item.key || item.keyLength < 9 || item.keyLength > 10)
+            return false;
+        for(mode = 0; mode < kMaxModes; mode++)
+            if(memcmp(item.key, ModeName(mode), 5) == 0)
+                break;
+        bank = item.key[6] - 'a';
+        slot = atoi(item.key + 8) - 1;
+        if(mode >= kMaxModes || bank < 0 || bank >= kMaxBanks || slot < 0 || slot >= kMaxSlots)
+            return false;
+        char name[12];
+        snprintf(name, sizeof(name), "%s-%c-%d", ModeName(mode), 'a' + bank, slot + 1);
+        return strlen(name) == item.keyLength && memcmp(name, item.key, item.keyLength) == 0;
+    }
 
         bool updated;
         const float* defaults_;
