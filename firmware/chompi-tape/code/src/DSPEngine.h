@@ -1936,12 +1936,7 @@ namespace daisy
                     bankchar = 'e';
             }
 
-            char mode[10];
-
-            if(m == VoiceMode::JAMMI)
-                strcpy(mode, "jammi");
-            else if(m == VoiceMode::CUBBI)
-                strcpy(mode, "cubbi");
+            const char *mode = m == VoiceMode::CUBBI ? "cubbi" : "jammi";
 
             if (name)
             {
