@@ -34,7 +34,7 @@ namespace chompi
         bool InCardMode();
         // the host ejected it, once
         bool TakeCardEjected();
-        // SD timer, while the card is free: the host's transfers
+        // the card task, while the card is free: the host's transfers
         void CardTask();
 
         // printf to the CDC port, from any context; the USB task sends it. Lines are dropped while it is full.

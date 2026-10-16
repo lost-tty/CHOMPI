@@ -19,6 +19,11 @@ LDSCRIPT=chompi_sram.lds
 C_SOURCES = ../libs/coreJSON/source/core_json.c
 C_INCLUDES +=  -I../libs/coreJSON/source/include
 
+# FreeRTOS
+RTOS_DIR = ../libs/FreeRTOS-Kernel
+C_SOURCES += $(RTOS_DIR)/tasks.c $(RTOS_DIR)/queue.c $(RTOS_DIR)/list.c $(RTOS_DIR)/portable/GCC/ARM_CM7/r0p1/port.c
+C_INCLUDES += -I$(RTOS_DIR)/include -I$(RTOS_DIR)/portable/GCC/ARM_CM7/r0p1
+
 # TinyUSB
 TINYUSB_DIR = ../libs/tinyusb/src
 TINYUSB_SOURCES = $(TINYUSB_DIR)/tusb.c \
@@ -43,7 +48,7 @@ CPP_SOURCES = chompi_main.cpp \
 
 USE_FATFS = 1
 
-# SD transfers that end run the SD timer at once, see __wrap_HAL_SD_IRQHandler
+# an SD transfer that ends wakes the task waiting for it, see __wrap_HAL_SD_IRQHandler
 LDFLAGS = -Wl,--wrap=HAL_SD_IRQHandler -u _printf_float
 
 # Libs

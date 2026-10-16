@@ -10,7 +10,7 @@
 
 namespace daisy {
 
-// Copies between card slots, the recording and the looper, a chunk per step from the SD timer, the card by DMA.
+// Copies between card slots, the recording and the looper, a chunk per step from the card task, the card by DMA.
 // A file is written as a .tmp and renamed over the target when complete.
 class FileCopier
 {
@@ -182,7 +182,7 @@ class FileCopier
             bool append = false;
         };
 
-        // Called from main or the SD timer.
+        // Called from the UI or the card task.
         void Request(const CopyRequest &req)
         {
             ScopedIrqBlocker block;

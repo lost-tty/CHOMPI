@@ -13,6 +13,8 @@ extern "C" Disk_drvTypeDef disk; // FatFS's driver table, defined in ff_gen_drv.
 #include "InterpolatedDelayLine.h"
 #include "OptionsManager.h"
 #include "Clock.h"
+#include "FreeRTOS.h"
+#include "task.h"
 
 #define DSY_DTCMRAM_BSS __attribute__((section(".dtcmram_bss")))
 
@@ -104,10 +106,46 @@ bool line_in_state;
 static_assert(Hardware::kAudioBlock <= usb::kMaxBlock && Hardware::kAudioBlock <= Engine::kMaxBlock,
               "USB and the engine hold one audio block");
 
+static constexpr int kChannels = 4;
+enum Priority : UBaseType_t { kUi = 1, kCard, kAudio };
+TaskHandle_t audio_task, ui_task, card_task;
+// spare interrupts, pended to wake tasks from interrupts above the kernel's
+static constexpr IRQn_Type kAudioWake = CRS_IRQn, kSdWake = ECC_IRQn;
+
+// The DMA interrupt hands the blocks to the audio task, a block late. USB's audio FIFOs belong to the USB
+// interrupt's priority (UsbDevice.cpp), so the exchange with the host stays in the interrupt.
+float DSY_DTCMRAM_BSS block_in[kChannels][Hardware::kAudioBlock], block_out[kChannels][Hardware::kAudioBlock];
+float DSY_DTCMRAM_BSS usb_in[usb::kRxChannels][Hardware::kAudioBlock], usb_out[usb::kTxChannels][Hardware::kAudioBlock];
+bool usb_out_on[usb::kTxChannels];
+volatile size_t block_size;
+
 void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, size_t size)
 {
-    // meter.OnBlockStart();
+    for(int c = 0; c < kChannels; c++)
+    {
+        std::copy(block_out[c], block_out[c] + size, out[c]);
+        std::copy(in[c], in[c] + size, block_in[c]);
+    }
+    const float *to_host[usb::kTxChannels];
+    for(size_t c = 0; c < usb::kTxChannels; c++)
+        to_host[c] = usb_out_on[c] ? usb_out[c] : nullptr;
+    usb::Send(to_host, size);
+    const float *const *rx = usb::Receive(size);
+    for(size_t c = 0; c < usb::kRxChannels; c++)
+        std::copy(rx[c], rx[c] + size, usb_in[c]);
+    block_size = size;
+    NVIC_SetPendingIRQ(kAudioWake);
+}
 
+extern "C" void CRS_IRQHandler() // kAudioWake
+{
+    BaseType_t woken = pdFALSE;
+    vTaskNotifyGiveFromISR(audio_task, &woken);
+    portYIELD_FROM_ISR(woken);
+}
+
+void Render(const float *const *in, float **out, size_t size)
+{
     if(!sound_up)
     {
         for(size_t i = 0; i < size; i++)
@@ -139,7 +177,9 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
     line_in_state = hw.jack_detect.Read();
 
     engine.UpdateUsbInputSource(usb::Connected(), usb::RxStreaming(), line_in_state);
-    engine.SetUsbInput(usb::Receive(size));
+    static const float *const usb_rx[] = {usb_in[0], usb_in[1]};
+    static_assert(usb::kRxChannels == 2, "the host plays stereo");
+    engine.SetUsbInput(usb_rx);
 
     // to the host: the mix before the volume, the input as recorded
     const float *to_host[usb::kTxChannels] = {out[2], out[3], nullptr, nullptr};
@@ -156,9 +196,30 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
         to_host[2] = engine.RecordInput()[0];
         to_host[3] = engine.RecordInput()[1];
     }
-    usb::Send(to_host, size);
+    for(size_t c = 0; c < usb::kTxChannels; c++)
+    {
+        usb_out_on[c] = to_host[c];
+        if(to_host[c])
+            std::copy(to_host[c], to_host[c] + size, usb_out[c]);
+    }
+}
 
-    // meter.OnBlockEnd();
+void AudioTask(void *)
+{
+    NVIC_SetPriority(kAudioWake, configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY);
+    NVIC_EnableIRQ(kAudioWake);
+    const float *in[kChannels];
+    float *out[kChannels];
+    for(int c = 0; c < kChannels; c++)
+    {
+        in[c] = block_in[c];
+        out[c] = block_out[c];
+    }
+    for(;;)
+    {
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        Render(in, out, block_size);
+    }
 }
 
 // Lets go of the card; nothing touches it until it is mounted again.
@@ -170,7 +231,7 @@ void DropCard()
 }
 
 // When the card is pulled while running, the RAM sample and the loop play on and nothing loads or saves.
-// The SD timer sees it go and answer again, and reads it like at boot.
+// The card task sees it go and answer again, and reads it like at boot.
 volatile bool card_gone = false;
 bool card_shown = false; // what the UI was last told
 void CardLost()
@@ -181,13 +242,20 @@ void CardLost()
     DropCard();
 }
 
-// libDaisy's SD interrupt, wrapped by the linker (Makefile): a transfer of the SD DMA that ends runs the SD timer at once
+// libDaisy's SD interrupt, wrapped by the linker (Makefile): a finished transfer wakes the card task
 extern "C" void __real_HAL_SD_IRQHandler(SD_HandleTypeDef *hsd);
 extern "C" void __wrap_HAL_SD_IRQHandler(SD_HandleTypeDef *hsd)
 {
     __real_HAL_SD_IRQHandler(hsd);
     if(sd_dma.Active() && hsd->State == HAL_SD_STATE_READY)
-        TIM4->EGR = TIM_EGR_UG;
+        NVIC_SetPendingIRQ(kSdWake);
+}
+
+extern "C" void ECC_IRQHandler() // kSdWake
+{
+    BaseType_t woken = pdFALSE;
+    vTaskNotifyGiveFromISR(card_task, &woken);
+    portYIELD_FROM_ISR(woken);
 }
 
 // our own folder on a multi-firmware card, else the one shared with TAPE, else the root
@@ -200,8 +268,8 @@ bool MountCard()
     return true;
 }
 
-// The SD timer owns the card from power-on. It reads a card at boot, when one comes back and after the host had
-// it, a step a tick, so main can run the UI meanwhile.
+// The card task owns the card from power-on. It reads a card at boot, when one comes back and after the host had
+// it, a step a tick, so the UI runs meanwhile.
 enum class CardJob : uint8_t
 {
     kWait, // main hasn't set the SD stack up yet
@@ -252,7 +320,8 @@ void CardJobStep()
 }
 
 // the card as a USB drive: CHOMPI lets go of it while the host has it, and takes it back as it finds it.
-// All card work runs on the SD timer; while card_lent it serves only the host, and this runs alone on the card
+// All card work runs in the card task; while card_lent it serves only the host, and this runs alone on the card. The
+// card task is above the UI and never waits within a step, so no step is half done here
 bool card_lent = false;
 bool reload_slot = false;
 void CardMode(bool on)
@@ -260,8 +329,8 @@ void CardMode(bool on)
     if(on)
     {
         card_lent = true;
-        while(sd_dma.Active()) // the SD timer ends the transfer under way
-            System::Delay(1);
+        while(sd_dma.Active()) // the card task ends the transfer under way
+            vTaskDelay(1);
         engine.StopAllVoices();
         slot_loader.Release();
         DropCard();
@@ -271,7 +340,7 @@ void CardMode(bool on)
     {
         usb::CardMode(false);
         while(sd_dma.Active())
-            System::Delay(1);
+            vTaskDelay(1);
         StartCardJob(false);
         card_lent = false;
         reload_slot = true; // the host may have changed the slot's file
@@ -279,7 +348,7 @@ void CardMode(bool on)
     ui.CardMode(on);
 }
 
-void SDCallback(void* data)
+void CardStep()
 {
     if(sd_dma.Busy()) // a transfer owns the card
         return;
@@ -335,6 +404,24 @@ void SDCallback(void* data)
     if(engine.GetFileManager()->request_fifo.IsEmpty())
         slot_loader.Step(); // last, it may start a transfer
 }
+
+void CardTask(void *)
+{
+    for(;;)
+    {
+        CardStep();
+        ulTaskNotifyTake(pdTRUE, 1); // a tick, or a transfer that ended
+    }
+}
+
+// TIM4 drives the kernel's tick; SysTick stays libDaisy's
+extern "C" void xPortSysTickHandler(void);
+void RtosTick(void *)
+{
+    if(xTaskGetSchedulerState() != taskSCHEDULER_NOT_STARTED)
+        xPortSysTickHandler();
+}
+extern "C" void vPortSetupTimerInterrupt(void) {}
 
 uint32_t uit, now, pre_startt;
 
@@ -436,7 +523,7 @@ void MainLoop(void* data)
         hw.MpReadAll();
 
         while (!hw.read_ready) {
-            System::Delay(1);
+            vTaskDelay(1);
         }
         ui.TestPowerCable(hw.mp_buff_[1] >> 5 & 1); //VIN_RDY
 
@@ -451,7 +538,7 @@ void MainLoop(void* data)
         hw.MpReadAll();
 
         while (!hw.read_ready) {
-            System::Delay(1);
+            vTaskDelay(1);
         }
         // Unknown or (not started and interrupt)
         uint8_t masked = hw.mp_buff_[0] & 0B11110000; // DPDM_STAT
@@ -475,8 +562,15 @@ void MainLoop(void* data)
         hw.MpWrite(0x0a, 0B00110100); // FORCEDPDM
     }
     #endif
+}
 
-    System::DelayUs(10);
+void UiTask(void *)
+{
+    for(;;)
+    {
+        MainLoop(nullptr);
+        vTaskDelay(1);
+    }
 }
 
 // MIDI comes in below the audio callback's priority
@@ -510,7 +604,7 @@ int main(void)
     for(SdFile &f : stream_files)
         f = SdFile();
     leds.Init();
-    hw.StartLowPriorityCallback(SDCallback, 1000);
+    hw.StartLowPriorityCallback(RtosTick, 1000);
     // System::Delay(100);
 
     hw.MpWrite(0x0c, 0B01010001); // set BATT_LOW to 3V, turn on 
@@ -533,6 +627,8 @@ int main(void)
                 {&copy_files[0], &copy_files[1], copy_in, copy_out});
     engine.FillDefaultSample(hw.seed.AudioSampleRate());
     ui.Init(&hw, &engine, &copier, &presets, &options);
+    for(auto &c : block_out) // DTCM isn't zeroed
+        std::fill(c, c + Hardware::kAudioBlock, 0.f);
     hw.StartAudio(AudioCallback);
     sound_up = true;
 
@@ -559,8 +655,14 @@ int main(void)
     batt = now;
     #endif
 
-    while (1)
-    {
-        MainLoop(nullptr);
-    }
+    static StaticTask_t audio_tcb, ui_tcb, card_tcb;
+    static StackType_t DSY_DTCMRAM_BSS audio_stack[2048];
+    static StackType_t ui_stack[2048], card_stack[2048];
+    audio_task = xTaskCreateStatic(AudioTask, "audio", 2048, nullptr, kAudio, audio_stack, &audio_tcb);
+    // above the UI, as the SD timer was
+    card_task = xTaskCreateStatic(CardTask, "card", 2048, nullptr, kCard, card_stack, &card_tcb);
+    ui_task = xTaskCreateStatic(UiTask, "ui", 2048, nullptr, kUi, ui_stack, &ui_tcb);
+    NVIC_SetPriority(kSdWake, configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY);
+    NVIC_EnableIRQ(kSdWake);
+    vTaskStartScheduler();
 }

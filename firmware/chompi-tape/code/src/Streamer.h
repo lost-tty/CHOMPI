@@ -5,7 +5,7 @@
 
 namespace chompi
 {
-    // Fills the voices' rings from the card on the SD timer, the one that runs dry soonest first.
+    // Fills the voices' rings from the card in the card task, the one that runs dry soonest first.
     // The card is read in blocks into a cache the rings share: voices on the same file read it once.
     class Streamer
     {
@@ -17,7 +17,7 @@ namespace chompi
         // rings count * 2 * Ring::kFrames frames
         void Init(Stream *streams, int count, SdFile *files, uint8_t *head, int16_t *rings, uint8_t *cache, int blocks);
 
-        // SD timer, while the card is free: opens and restarts, fills the rings it can from the cache,
+        // the card task, while the card is free: opens and restarts, fills the rings it can from the cache,
         // and starts one transfer if a ring needs a block. true when it started one.
         bool Step();
 

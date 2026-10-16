@@ -159,7 +159,7 @@ namespace chompi
             n = n0 + (n < 0 ? 0 : n > int(sizeof(line)) - n0 - 3 ? int(sizeof(line)) - n0 - 3 : n);
             line[n++] = '\r';
             line[n++] = '\n';
-            daisy::ScopedIrqBlocker block; // main, the SD timer and the audio may all log
+            daisy::ScopedIrqBlocker block; // any task and interrupt may log
             if(tud_cdc_write_available() >= uint32_t(n))
                 tud_cdc_write(line, n);
         }
@@ -253,7 +253,7 @@ namespace chompi
 
     namespace usb
     {
-        // the card as a drive: TinyUSB asks in its task, the SD timer moves the sectors, then the answer is ready
+        // the card as a drive: TinyUSB asks in its task, the card task moves the sectors, then the answer is ready
         static uint8_t DSY_SDRAM_BSS __attribute__((aligned(32))) card_buf[CFG_TUD_MSC_EP_BUFSIZE];
         enum class CardIo : uint8_t { kIdle, kPosted, kRunning, kDone, kFailed };
         static volatile CardIo card_io = CardIo::kIdle;

@@ -27,7 +27,7 @@ namespace chompi
     }
 
     // Loads the JAMMI slot into slot_buff by DMA, a chunk per transfer: an OP-1 kit or other .aif, or a .wav that fits
-    // (else it streams), and keeps a kit's slice edits in the sidecar. Everything here runs on the SD timer, except
+    // (else it streams), and keeps a kit's slice edits in the sidecar. Everything here runs in the card task, except
     // Request, Loaded, Edit, Forget and Reserve.
     // The SD DMA can't reach DTCM and wants aligned addresses, so reads go through a bounce buffer in SDRAM.
     // slot_buff is the top of the recording's memory; the recording growing near it drops it.
@@ -142,7 +142,7 @@ namespace chompi
             }
         }
 
-        // SD timer: delete a kit and its sidecar
+        // the card task: delete a kit and its sidecar
         void Remove(const char *aif)
         {
             char json[32];
@@ -152,7 +152,7 @@ namespace chompi
             f_unlink(json);
         }
 
-        // SD timer
+        // the card task
         void Step()
         {
             if(evict_)
@@ -167,7 +167,7 @@ namespace chompi
                 Load();
         }
 
-        // SD timer, while nothing plays: the edits go to the sidecar, written next to it and renamed over
+        // the card task, while nothing plays: the edits go to the sidecar, written next to it and renamed over
         void Save(uint32_t now)
         {
             if(dirty_ && !loading_ && name_[0] && now - edit_time_ >= kKitSaveDelay)

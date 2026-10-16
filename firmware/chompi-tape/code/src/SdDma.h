@@ -92,7 +92,7 @@ namespace chompi
     };
 
     // One transfer at a time between a file and SDRAM, by DMA in as few runs as the file's fragments allow, or of
-    // raw sectors. Start it from the SD timer and poll Busy() there; nothing else may use the card until it returns
+    // raw sectors. Start it from the card task and poll Busy() there; nothing else may use the card until it returns
     // false. Then Failed(), the file's or for sectors this one's, tells how it went.
     // buf: 32-byte aligned, room for bytes rounded up to sectors. offset: sector aligned.
     class SdDma

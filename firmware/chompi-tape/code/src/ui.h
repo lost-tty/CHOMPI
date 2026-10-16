@@ -305,7 +305,7 @@ namespace chompi
                                                              enc_defaults[1][1], enc_defaults[1][2], 1.f, 1.f,
                                                              enc_defaults[1][0], .5f, 0.f, 0.f};
 
-        // The SD timer reads presets.json with the card, and the UI's tick applies it with the options, so a
+        // The card task reads presets.json with the card, and the UI's tick applies it with the options, so a
         // recall never reads a preset half written. A write under way is dropped; the card's copy wins.
         void ReadCard()
         {
@@ -424,7 +424,7 @@ namespace chompi
         NoSDPage no_sd_page_;
         Rainbow rainbow_;
         bool presets_read_ = false;
-        volatile bool card_pending_ = false; // the SD timer read the card, main applies it
+        volatile bool card_pending_ = false; // the card task read the card, the UI applies it
         bool card_read_ = false;
         static constexpr uint32_t kCardBlink = 1000; // ms
         uint32_t card_gone_at_ = 0;

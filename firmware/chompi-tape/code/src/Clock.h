@@ -6,7 +6,7 @@
 namespace chompi
 {
     // The beat grid: MIDI clock while it runs, else the metronome.
-    // MIDI comes in the receive interrupts, at the audio callback's priority, so only lower priority code needs the lock.
+    // MIDI comes in the receive interrupts, above the tasks, so what reads its state from a task takes the lock.
     // The MIDI grid starts with Start or Song Position, joining a running clock would be off the beat.
     class Clock
     {
