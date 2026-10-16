@@ -107,7 +107,7 @@ static_assert(Hardware::kAudioBlock <= usb::kMaxBlock && Hardware::kAudioBlock <
               "USB and the engine hold one audio block");
 
 static constexpr int kChannels = 4;
-enum Priority : UBaseType_t { kUi = 1, kCard, kAudio };
+enum Priority : UBaseType_t { kCard = 1, kUi, kAudio };
 TaskHandle_t audio_task, ui_task, card_task;
 // spare interrupts, pended to wake tasks from interrupts above the kernel's
 static constexpr IRQn_Type kAudioWake = CRS_IRQn, kSdWake = ECC_IRQn;
@@ -321,17 +321,21 @@ void CardJobStep()
 }
 
 // the card as a USB drive: CHOMPI lets go of it while the host has it, and takes it back as it finds it.
-// All card work runs in the card task; while card_lent it serves only the host, and this runs alone on the card. The
-// card task is above the UI and never waits within a step, so no step is half done here
 bool card_lent = false;
 bool reload_slot = false;
+volatile int8_t card_mode = -1;
+
 void CardMode(bool on)
+{
+    card_mode = on;
+    ui.CardMode(on);
+}
+
+void SwitchCardMode(bool on)
 {
     if(on)
     {
         card_lent = true;
-        while(sd_dma.Active()) // the card task ends the transfer under way
-            vTaskDelay(1);
         engine.StopAllVoices();
         slot_loader.Release();
         DropCard();
@@ -340,19 +344,22 @@ void CardMode(bool on)
     else
     {
         usb::CardMode(false);
-        while(sd_dma.Active())
-            vTaskDelay(1);
         StartCardJob(false);
         card_lent = false;
         reload_slot = true; // the host may have changed the slot's file
     }
-    ui.CardMode(on);
 }
 
 void CardStep()
 {
     if(sd_dma.Busy()) // a transfer owns the card
         return;
+    if(card_mode >= 0)
+    {
+        SwitchCardMode(card_mode);
+        card_mode = -1;
+        return;
+    }
     if(card_lent)
     {
         usb::CardTask();
@@ -662,7 +669,6 @@ int main(void)
     static StackType_t DSY_DTCMRAM_BSS audio_stack[2048];
     static StackType_t ui_stack[2048], card_stack[2048];
     audio_task = xTaskCreateStatic(AudioTask, "audio", 2048, nullptr, kAudio, audio_stack, &audio_tcb);
-    // above the UI, as the SD timer was
     card_task = xTaskCreateStatic(CardTask, "card", 2048, nullptr, kCard, card_stack, &card_tcb);
     ui_task = xTaskCreateStatic(UiTask, "ui", 2048, nullptr, kUi, ui_stack, &ui_tcb);
     NVIC_SetPriority(kSdWake, configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY);
