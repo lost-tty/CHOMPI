@@ -336,6 +336,8 @@ namespace chompi
         midi_rx_cb = callback;
     }
 
+    bool MidiTinyUsbTransport::RxActive() { return midi_rx_cb != nullptr; }
+
     bool MidiTinyUsbTransport::Tx(uint8_t *buffer, size_t size)
     {
         daisy::ScopedIrqBlocker block;

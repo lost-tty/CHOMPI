@@ -56,7 +56,8 @@ namespace chompi
         void Init(Config config) {}
         void Reset();
         void StartRx(MidiRxParseCallback callback, void *context);
-        bool RxActive() { return true; }
+        // true once StartRx has set a callback: MidiHandler::Listen() starts reception otherwise
+        bool RxActive();
         void FlushRx() {}
         bool Tx(uint8_t *buffer, size_t size);
 
