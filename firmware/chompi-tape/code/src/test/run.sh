@@ -11,3 +11,10 @@ clang -std=c11 -O1 -I$json/include -c $json/core_json.c -o build/core_json.o
 clang++ -std=c++17 -O1 -Wall -Wno-unknown-pragmas -Ibuild/inc -I$json/include preset_test.cpp build/core_json.o \
     -o build/preset_test
 ./build/preset_test
+
+# the page cache: the headers under test next to the stubs for libDaisy
+for f in PageCache.h Tape.h; do ln -sf ../../../$f build/inc/$f; done
+for f in daisy_seed.h daisy.h util; do ln -sfn ../../stubs/$f build/inc/$f; done
+flags="-std=c++17 -O1 -Wall -Wno-unknown-pragmas -Wno-unknown-attributes -Ibuild/inc"
+clang++ $flags cache_test.cpp -o build/cache_test
+./build/cache_test
