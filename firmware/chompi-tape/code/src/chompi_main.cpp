@@ -156,6 +156,7 @@ void Render(const float *const *in, float **out, size_t size)
     hw.ProcessAllControls();
     ui.GenerateEvents();
     engine.Prepare();
+    hw.StartScan(); // after the key work, so the registers had time to load
 
     // a recording held from this press starts at it
     static bool chompi_key = false;
@@ -596,8 +597,10 @@ int main(void)
     // the keys read pressed and the encoders 0xff until scanned through the debounce: before anyone looks
     for(size_t i = 0; i < hw.KeyLag(); i++)
     {
-        hw.ProcessAllControls();
         System::Delay(1);
+        hw.StartScan();
+        System::Delay(1);
+        hw.ProcessAllControls();
     }
     // The SDRAM is up. The file objects in it start closed; nothing else in it is read before it is written.
     slot_file = copy_files[0] = copy_files[1] = SdFile();

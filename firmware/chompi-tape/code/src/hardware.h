@@ -3,6 +3,7 @@
 #include "encoder.h"
 #include "Leds.h"
 #include "UsbDevice.h"
+#include "KeyScan.h"
 
 #define ENC_5_SW 4 // this one weird switch isn't on the SR
 
@@ -156,19 +157,12 @@ namespace chompi
             /** Switches 5x CD4021 in series
              *  See SwId for mapping
              */
-            ShiftRegister4021<5, 1>::Config button_sr_cfg;
-            button_sr_cfg.clk = seed::D8;
-            button_sr_cfg.latch = seed::D7;
-            button_sr_cfg.data[0] = seed::D9;
-            button_sr_cfg.dbc_size = 7;
+            // SPI1 runs at 25 MHz (PLL2P), SPI6 at 120 MHz (APB4): the bits come at 781 and 938 kHz
+            chompi::KeyScan::Config button_sr_cfg = {SPI1, GPIO_AF5_SPI1, 4, seed::D8, seed::D9, seed::D7, 5, 7};
             button_sr.Init(button_sr_cfg);
-            key_lag_ = button_sr_cfg.dbc_size + 1;
+            key_lag_ = button_sr_cfg.dbc_size + 2; // a scan is read a block later
 
-            ShiftRegister4021<1, 1>::Config encoder_sr_cfg;
-            encoder_sr_cfg.clk = seed::D22;
-            encoder_sr_cfg.latch = seed::D23;
-            encoder_sr_cfg.data[0] = seed::D19;
-            encoder_sr_cfg.dbc_size = 50; // we're not actually using this
+            chompi::KeyScan::Config encoder_sr_cfg = {SPI6, GPIO_AF8_SPI6, 6, seed::D22, seed::D19, seed::D23, 1, 50};
             encoder_sr.Init(encoder_sr_cfg);
 
             /** MIDI */
@@ -376,10 +370,10 @@ namespace chompi
         bool ChompiKeyDown() const { return button_sr.State(static_cast<int>(SwId::KEY_26)); }
         size_t KeyLag() const { return key_lag_; }
 
-        void ProcessAllControls() __attribute__((optimize("-O0")))
+        void ProcessAllControls()
         {
-            button_sr.Update();
-            encoder_sr.Update();
+            button_sr.Take();
+            encoder_sr.Take();
 
             if(!button_sr.State(static_cast<int>(Hardware::SwId::SW_TOG)))
                 tog_state++;
@@ -404,6 +398,12 @@ namespace chompi
                 if (enc[i].RisingEdge())
                     enc_trackers[i] = 0;
             }
+        }
+
+        void StartScan()
+        {
+            button_sr.Start();
+            encoder_sr.Start();
         }
 
         void StartAudio(AudioHandle::AudioCallback cb)
@@ -537,9 +537,9 @@ namespace chompi
         bool read_ready = false;
 
         ChompiEncoder enc[6];
-        ShiftRegister4021<5, 1> button_sr;
+        chompi::KeyScan button_sr;
         size_t key_lag_;
-        ShiftRegister4021<1, 1> encoder_sr;
+        chompi::KeyScan encoder_sr;
         SaiHandle external_sai_handle;
         MidiHandler<MidiTinyUsbTransport> usb_midi;
         MidiUartHandler uart_midi;
