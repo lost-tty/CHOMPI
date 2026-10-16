@@ -173,7 +173,7 @@ namespace chompi
             usb::Init();
             MidiHandler<MidiTinyUsbTransport>::Config usb_midi_cfg;
             usb_midi.Init(usb_midi_cfg);
-            usb_midi.Listen();
+            usb_midi.StartReceive();
 
             for (size_t i = 0; i < 6; i++)
                 enc_trackers[i] = 0;
